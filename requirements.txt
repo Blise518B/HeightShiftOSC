@@ -1,0 +1,4 @@
+customtkinter
+python-osc
+zeroconf
+requests
