@@ -40,6 +40,7 @@ from constants import (
 from osc_manager import VRChatOSCManager
 from ui import HeightShiftWindow, apply_global_style
 from utils import round_height_cm
+from version import __version__
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
 logger = logging.getLogger(__name__)
@@ -521,6 +522,7 @@ def main() -> int:
         icon = None
 
     window = HeightShiftWindow()
+    window.setWindowTitle(f"{APP_NAME} - v{__version__}")
     if icon is not None:
         window.setWindowIcon(icon)
     window.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
