@@ -50,3 +50,6 @@ desktop.ini
 # Build outputs
 *.ico
 *.exe
+
+# Claude Code local state
+.claude/

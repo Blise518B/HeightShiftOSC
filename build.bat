@@ -19,10 +19,10 @@ if errorlevel 1 (
     pip install pyinstaller
 )
 
-pip show customtkinter >nul 2>&1
+pip show PySide6 >nul 2>&1
 if errorlevel 1 (
-    echo Installing customtkinter...
-    pip install customtkinter
+    echo Installing PySide6...
+    pip install PySide6
 )
 
 pip show python-osc >nul 2>&1
@@ -31,10 +31,16 @@ if errorlevel 1 (
     pip install python-osc
 )
 
-pip show pillow >nul 2>&1
+pip show zeroconf >nul 2>&1
 if errorlevel 1 (
-    echo Installing Pillow...
-    pip install pillow
+    echo Installing zeroconf...
+    pip install zeroconf
+)
+
+pip show requests >nul 2>&1
+if errorlevel 1 (
+    echo Installing requests...
+    pip install requests
 )
 
 echo.
@@ -52,9 +58,9 @@ if exist *.spec (
 echo.
 echo [3/5] Building executable with PyInstaller...
 pyinstaller --onefile --windowed ^
---icon="OSC_Scale.ico" ^
---add-data "OSC_Scale.ico;." ^
---name "HeightShiftOSC" ^
+    --icon="OSC_Scale.ico" ^
+    --add-data "OSC_Scale.ico;." ^
+    --name "HeightShiftOSC" ^
     main.py
 
 if errorlevel 1 (

@@ -1,376 +1,756 @@
-import customtkinter as ctk
-from utils import round_height_cm
-from constants import (
-    COLOR_NOT_LOADED,
-    COLOR_SUCCESS,
-    COLOR_SUCCESS_HOVER,
-    COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_DANGER,
-    COLOR_DANGER_HOVER,
-    MIN_HEIGHT_CM,
-    MAX_HEIGHT_CM,
-    DEFAULT_HEIGHT_CM
+"""
+ui.py — PySide6 UI for HeightShiftOSC.
+
+Pure view layer. The controller (`HeightScalerApp` in main.py) wires
+signals to slots on the window; the window only paints state.
+
+Theme mirrors OscGoesPurrr: deep indigo background, purple/pink accent,
+neon-green success, hot-pink "live" accent. The QSS at the top of this
+file is the single source of truth for visual styling.
+"""
+
+from __future__ import annotations
+
+from typing import Callable, Dict, Optional
+
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
 )
 
+from constants import (
+    APP_NAME,
+    COLOR_ALERT,
+    COLOR_ALERT_HOVER,
+    COLOR_BG,
+    COLOR_BUTTON,
+    COLOR_BUTTON_HOVER,
+    COLOR_INPUT_BG,
+    COLOR_INPUT_BORDER,
+    COLOR_INPUT_FOCUS,
+    COLOR_LIVE,
+    COLOR_PRIMARY,
+    COLOR_PRIMARY_HOVER,
+    COLOR_SUCCESS,
+    COLOR_SURFACE,
+    COLOR_SURFACE_HOVER,
+    COLOR_TEXT,
+    COLOR_TEXT_MUTED,
+    COLOR_WARNING,
+    DEFAULT_HEIGHT_CM,
+    MAX_HEIGHT_CM,
+    MIN_HEIGHT_CM,
+)
 
-def create_ui(root, app):
-    """Create the main UI."""
-    # Main container
-    main_frame = ctk.CTkFrame(root)
-    main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-    
-    # OSC settings frame
-    osc_settings_frame = ctk.CTkFrame(main_frame)
-    osc_settings_frame.pack(fill="x", pady=(0, 10))
-    
-    osc_label = ctk.CTkLabel(osc_settings_frame, text="OSC Settings", font=ctk.CTkFont(weight="bold"))
-    osc_label.pack(anchor="w", padx=10, pady=(10, 5))
-    
-    osc_container = ctk.CTkFrame(osc_settings_frame)
-    osc_container.pack(fill="x", padx=10, pady=(5, 10))
-    
-    # Row 1: Local OSC Port (dynamic from oscquery server)
-    ctk.CTkLabel(osc_container, text="Local OSC:", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, sticky="w", padx=5, pady=5)
-    local_port_label = ctk.CTkLabel(osc_container, textvariable=app.osc_port, width=80, text_color="#218838")
-    local_port_label.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-    
-    # VRChat Port (aligned with Local OSC Port on same row)
-    ctk.CTkLabel(osc_container, text="VRChat Port:").grid(row=0, column=2, sticky="w", padx=10, pady=5)
-    port_label = ctk.CTkLabel(osc_container, textvariable=app.vrchat_port, width=80)
-    port_label.grid(row=0, column=3, sticky="w", padx=5, pady=5)
+# ============================================================
+# Global QSS
+# ============================================================
 
-    # Row 2: VRChat IP (editable) with Apply button
-    ctk.CTkLabel(osc_container, text="VRChat IP:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
-    app.ip_entry = ctk.CTkEntry(
-        osc_container,
-        textvariable=app.osc_ip,
-        width=120
-    )
-    app.ip_entry.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+GLOBAL_QSS = f"""
+* {{
+    color: {COLOR_TEXT};
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 13px;
+}}
+QMainWindow, QDialog, QWidget#root {{
+    background-color: {COLOR_BG};
+}}
+QFrame#card {{
+    background-color: {COLOR_SURFACE};
+    border-radius: 12px;
+}}
+QFrame#cardDark {{
+    background-color: {COLOR_BG};
+    border-radius: 12px;
+}}
+QLabel {{
+    background: transparent;
+}}
+QLabel#sectionTitle {{
+    color: {COLOR_INPUT_FOCUS};
+    font-size: 14px;
+    font-weight: bold;
+}}
+QLabel#heightDisplay {{
+    color: {COLOR_TEXT};
+    font-size: 40px;
+    font-weight: bold;
+}}
+QLabel#heightDisplayNotLoaded {{
+    color: {COLOR_WARNING};
+    font-size: 40px;
+    font-weight: bold;
+}}
+QLabel#statusPort {{
+    color: {COLOR_SUCCESS};
+    font-weight: bold;
+}}
+QLabel#statusPortPending {{
+    color: {COLOR_WARNING};
+    font-weight: bold;
+}}
+QLabel[muted="true"] {{
+    color: {COLOR_TEXT_MUTED};
+}}
+QLabel[connectionState="connected"] {{
+    color: {COLOR_SUCCESS};
+    font-weight: bold;
+}}
+QLabel[connectionState="waiting"] {{
+    color: {COLOR_WARNING};
+}}
 
-    # Apply button for IP changes
-    apply_btn = ctk.CTkButton(
-        osc_container,
-        text="Apply",
-        command=lambda: app.apply_ip_change(),
-        width=60
-    )
-    apply_btn.grid(row=1, column=2, sticky="w", padx=10, pady=5)
-    
-    # Height display section with adjustment buttons on sides
-    height_frame = ctk.CTkFrame(main_frame)
-    height_frame.pack(fill="x", pady=(0, 10))
-    
-    height_label = ctk.CTkLabel(height_frame, text="Current Height", font=ctk.CTkFont(weight="bold"))
-    height_label.pack(anchor="w", padx=10, pady=(10, 5))
-    
-    # Main height adjustment container with vertical layout
-    height_main_frame = ctk.CTkFrame(height_frame)
-    height_main_frame.pack(pady=5, fill="x")
-    
-    # Row 1: plus buttons
-    plus_container = ctk.CTkFrame(height_main_frame)
-    plus_container.pack(fill="x", pady=(0, 10))
-    
-    create_adjust_button(plus_container, "+1 cm", 1, app)
-    create_adjust_button(plus_container, "+10 cm", 10, app)
-    create_adjust_button(plus_container, "+100 cm", 100, app)
-    
-    # Row 2: height display
-    app.height_display = ctk.CTkLabel(
-        height_main_frame, 
-        text="Not Loaded", 
-        font=ctk.CTkFont(size=32, weight="bold"),
-        text_color=COLOR_NOT_LOADED  # Orange color for "Not Loaded" state
-    )
-    app.height_display.pack(pady=(10, 5))
-    
-    # Row 3: minus buttons
-    minus_container = ctk.CTkFrame(height_main_frame)
-    minus_container.pack(fill="x", pady=(10, 5))
-    
-    create_adjust_button(minus_container, "-1 cm", -1, app)
-    create_adjust_button(minus_container, "-10 cm", -10, app)
-    create_adjust_button(minus_container, "-100 cm", -100, app)
-    
-    # Row 4: Slider with min/max input fields
-    slider_frame = ctk.CTkFrame(height_main_frame)
-    slider_frame.pack(fill="x", pady=5)
-    
-    # Min value entry (left side)
-    min_entry_container = ctk.CTkFrame(slider_frame)
-    min_entry_container.pack(side="left", padx=(0, 10))
-    
-    ctk.CTkLabel(min_entry_container, text="Min:", width=40).pack(side="left")
-    app.slider_min_var = ctk.StringVar(value=str(app.slider_min_value))
-    app.slider_min_var.trace_add("write", lambda *args: on_slider_range_change(app))
-    app.slider_min_entry = ctk.CTkEntry(
-        min_entry_container,
-        textvariable=app.slider_min_var,
-        width=60
-    )
-    app.slider_min_entry.pack(side="left", padx=(10, 10))
-    
-    # Slider (middle)
-    app.height_slider = ctk.CTkSlider(
-        slider_frame,
-        from_=MIN_HEIGHT_CM,
-        to=MAX_HEIGHT_CM,
-        number_of_steps=10000,  # Allow smooth dragging for any cm value
-        command=lambda val: on_slider_change(val, app)
-    )
-    app.height_slider.pack(side="left", fill="x", expand=True, padx=(0, 10))
-    app.height_slider.set(DEFAULT_HEIGHT_CM)  # Initial slider position
-    
-    # Max value entry (right side)
-    max_entry_container = ctk.CTkFrame(slider_frame)
-    max_entry_container.pack(side="left")
-    
-    ctk.CTkLabel(max_entry_container, text="Max:", width=40).pack(side="left")
-    app.slider_max_var = ctk.StringVar(value=str(app.slider_max_value))
-    app.slider_max_var.trace_add("write", lambda *args: on_slider_range_change(app))
-    app.slider_max_entry = ctk.CTkEntry(
-        max_entry_container,
-        textvariable=app.slider_max_var,
-        width=60
-    )
-    app.slider_max_entry.pack(side="left", padx=(10, 10))
-    
-    # Profiles section
-    profiles_frame = ctk.CTkFrame(main_frame)
-    profiles_frame.pack(fill="both", expand=True, pady=(0, 10))
-    
-    profiles_label = ctk.CTkLabel(profiles_frame, text="Height Profiles", font=ctk.CTkFont(weight="bold"))
-    profiles_label.pack(anchor="w", padx=10, pady=(10, 5))
-    
-    profiles_container = ctk.CTkFrame(profiles_frame)
-    profiles_container.pack(fill="both", expand=True, padx=10, pady=(5, 10))
-    
-    # Create 4 profile rows
-    app.profile_labels = {}
-    app.profile_display_labels = {}
-    
-    for i in range(1, 5):
-        row_frame = ctk.CTkFrame(profiles_container)
-        row_frame.pack(fill="x", pady=5)
-        
-        # Profile label
-        ctk.CTkLabel(row_frame, text=f"Profile {i}:", font=ctk.CTkFont(size=11)).pack(side="left", padx=10)
-        
-        # Height display for this profile
-        height_var = ctk.StringVar(value="0 cm")
-        display_label = ctk.CTkLabel(
-            row_frame, 
-            textvariable=height_var, 
-            font=ctk.CTkFont(size=11),
-            width=100,
-            anchor="w"
-        )
-        display_label.pack(side="left", padx=10)
-        app.profile_display_labels[i] = display_label
-        app.profile_labels[i] = height_var
-        
-        # Save button
-        save_btn = ctk.CTkButton(
-            row_frame,
-            text="Save",
-            command=lambda num=i: app.save_profile(num),
-            fg_color=COLOR_SUCCESS,
-            hover_color=COLOR_SUCCESS_HOVER
-        )
-        save_btn.pack(side="left", padx=5)
-        
-        # Load button
-        load_btn = ctk.CTkButton(
-            row_frame,
-            text="Load",
-            command=lambda num=i: app.load_profile(num),
-            fg_color=COLOR_PRIMARY,
-            hover_color=COLOR_PRIMARY_HOVER
-        )
-        load_btn.pack(side="left", padx=5)
-    
-    # Refresh profile display
-    refresh_profile_display(app)
-    
-    # Preserve Height on Avatar Switch checkbox
-    preserve_frame = ctk.CTkFrame(main_frame)
-    preserve_frame.pack(fill="x", pady=(0, 10))
-    
-    app.preserve_height_var = ctk.BooleanVar(value=app.preserve_height_on_avatar)
-    preserve_checkbox = ctk.CTkCheckBox(
-        preserve_frame,
-        text="Preserve Height on Avatar Switch",
-        variable=app.preserve_height_var,
-        command=lambda: save_preserve_flag(app),
-        onvalue=True,
-        offvalue=False
-    )
-    preserve_checkbox.pack(side="left", padx=10, pady=5)
-    
-    # Hide Console checkbox
-    hide_console_frame = ctk.CTkFrame(main_frame)
-    hide_console_frame.pack(fill="x", pady=(0, 10))
-    
-    app.hide_console_var = ctk.BooleanVar(value=app.hide_console if hasattr(app, 'hide_console') else False)
-    hide_console_checkbox = ctk.CTkCheckBox(
-        hide_console_frame,
-        text="Hide Console Window",
-        variable=app.hide_console_var,
-        command=lambda: save_hide_console_flag(app),
-        onvalue=True,
-        offvalue=False
-    )
-    hide_console_checkbox.pack(side="left", padx=10, pady=5)
-    
-    # Startup Mode selection
-    startup_frame = ctk.CTkFrame(main_frame)
-    startup_frame.pack(fill="x", pady=(0, 10))
-    
-    ctk.CTkLabel(startup_frame, text="Startup Mode:", width=120).pack(side="left", padx=10, pady=5)
-    
-    app.startup_mode_var = ctk.StringVar(value=app.startup_mode)
-    startup_menu = ctk.CTkOptionMenu(
-        startup_frame,
-        variable=app.startup_mode_var,
-        values=["Query Current Height", "Load Fixed Height"],
-        command=lambda mode: on_startup_mode_change(mode, app)
-    )
-    startup_menu.pack(side="left", padx=10, pady=5)
-    
-    # Fixed height entry (shown when Load Fixed Height is selected)
-    app.fixed_height_var = ctk.StringVar(value=str(app.startup_height))
-    app.fixed_height_entry = ctk.CTkEntry(
-        startup_frame,
-        textvariable=app.fixed_height_var,
-        width=80
-    )
-    if app.startup_mode == "Load Fixed Height":
-        app.fixed_height_entry.pack(side="left", padx=10, pady=5)
-    
-    # Add trace to update startup_height when user types in the field
-    def on_fixed_height_change(*args):
+QPushButton {{
+    background-color: {COLOR_PRIMARY};
+    color: {COLOR_TEXT};
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+}}
+QPushButton:hover {{
+    background-color: {COLOR_PRIMARY_HOVER};
+}}
+QPushButton:disabled {{
+    color: {COLOR_TEXT_MUTED};
+    background-color: {COLOR_SURFACE};
+}}
+QPushButton[role="secondary"] {{
+    background-color: {COLOR_BUTTON};
+    color: {COLOR_TEXT};
+}}
+QPushButton[role="secondary"]:hover {{
+    background-color: {COLOR_BUTTON_HOVER};
+}}
+QPushButton[role="success"] {{
+    background-color: {COLOR_SUCCESS};
+    color: {COLOR_BG};
+    font-weight: bold;
+}}
+QPushButton[role="success"]:hover {{
+    background-color: #00E064;
+}}
+QPushButton[role="danger"] {{
+    background-color: {COLOR_ALERT};
+    color: {COLOR_TEXT};
+    font-weight: bold;
+}}
+QPushButton[role="danger"]:hover {{
+    background-color: {COLOR_ALERT_HOVER};
+}}
+
+QLineEdit {{
+    background-color: {COLOR_INPUT_BG};
+    color: {COLOR_TEXT};
+    border: 1px solid {COLOR_INPUT_BORDER};
+    border-radius: 4px;
+    padding: 4px 6px;
+    selection-background-color: {COLOR_PRIMARY};
+}}
+QLineEdit:focus {{
+    border: 1px solid {COLOR_INPUT_FOCUS};
+}}
+QLineEdit:read-only {{
+    background-color: {COLOR_SURFACE};
+    color: {COLOR_TEXT_MUTED};
+}}
+
+QComboBox {{
+    background-color: {COLOR_INPUT_BG};
+    color: {COLOR_TEXT};
+    border: 1px solid {COLOR_INPUT_BORDER};
+    border-radius: 4px;
+    padding: 4px 6px;
+    selection-background-color: {COLOR_PRIMARY};
+    min-width: 160px;
+}}
+QComboBox:hover {{
+    border-color: {COLOR_INPUT_FOCUS};
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 18px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {COLOR_INPUT_BG};
+    color: {COLOR_TEXT};
+    border: 1px solid {COLOR_INPUT_BORDER};
+    selection-background-color: {COLOR_PRIMARY};
+    selection-color: {COLOR_TEXT};
+    outline: 0;
+}}
+
+QCheckBox {{
+    background: transparent;
+    spacing: 6px;
+}}
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 2px solid {COLOR_TEXT_MUTED};
+    border-radius: 3px;
+    background-color: {COLOR_INPUT_BG};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {COLOR_PRIMARY};
+    border: 2px solid {COLOR_TEXT};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {COLOR_INPUT_FOCUS};
+}}
+
+QSlider::groove:horizontal {{
+    height: 6px;
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 {COLOR_PRIMARY},
+        stop:1 {COLOR_LIVE}
+    );
+    border-radius: 3px;
+}}
+QSlider::sub-page:horizontal {{
+    background: transparent;
+}}
+QSlider::add-page:horizontal {{
+    background: {COLOR_BG};
+    border-radius: 3px;
+}}
+QSlider::handle:horizontal {{
+    background: {COLOR_TEXT};
+    width: 14px;
+    margin: -6px 0;
+    border-radius: 7px;
+    border: 2px solid {COLOR_PRIMARY};
+}}
+QSlider::handle:horizontal:hover {{
+    border-color: {COLOR_LIVE};
+}}
+"""
+
+
+# ============================================================
+# Helpers
+# ============================================================
+
+def _vbox(margin: int = 0, spacing: int = 6) -> QVBoxLayout:
+    lay = QVBoxLayout()
+    lay.setContentsMargins(margin, margin, margin, margin)
+    lay.setSpacing(spacing)
+    return lay
+
+
+def _hbox(margin: int = 0, spacing: int = 6) -> QHBoxLayout:
+    lay = QHBoxLayout()
+    lay.setContentsMargins(margin, margin, margin, margin)
+    lay.setSpacing(spacing)
+    return lay
+
+
+class _Card(QFrame):
+    """Rounded section background."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("card")
+
+
+# ============================================================
+# Main window
+# ============================================================
+
+class HeightShiftWindow(QMainWindow):
+    """Main app window. Pure view — the controller pushes state in via
+    public setters and listens to the signals below."""
+
+    # --- Signals fired in response to user actions ---
+    apply_ip_clicked = Signal(str)
+    adjust_clicked = Signal(int)          # delta in cm
+    slider_changed = Signal(int)          # new value in cm (committed)
+    slider_dragging = Signal(int)         # live drag value (no OSC send)
+    profile_save = Signal(int)            # profile number (1..4)
+    profile_load = Signal(int)
+    preserve_toggled = Signal(bool)
+    hide_console_toggled = Signal(bool)
+    startup_mode_changed = Signal(str)    # "query" or "fixed_height"
+    startup_height_changed = Signal(int)
+    slider_range_changed = Signal(int, int)
+    refresh_height_clicked = Signal()
+    quit_clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("root")
+        self.setWindowTitle(APP_NAME)
+
+        # Close handler installed by the controller. Lets the controller
+        # save config / stop OSC before the window actually closes without
+        # having to monkey-patch closeEvent on the instance.
+        self._close_handler: Optional[Callable[[], None]] = None
+
+        # Widget refs we update later
+        self.local_port_label: Optional[QLabel] = None
+        self.vrchat_port_label: Optional[QLabel] = None
+        self.ip_entry: Optional[QLineEdit] = None
+        self.height_display: Optional[QLabel] = None
+        self.connection_label: Optional[QLabel] = None
+        self.height_slider: Optional[QSlider] = None
+        self.slider_min_entry: Optional[QLineEdit] = None
+        self.slider_max_entry: Optional[QLineEdit] = None
+        self.preserve_checkbox: Optional[QCheckBox] = None
+        self.hide_console_checkbox: Optional[QCheckBox] = None
+        self.startup_combo: Optional[QComboBox] = None
+        self.fixed_height_entry: Optional[QLineEdit] = None
+        self.profile_value_labels: Dict[int, QLabel] = {}
+
+        # Track committed values so noisy slider updates don't echo OSC
+        # for every pixel of drag.
+        self._suppress_slider_signal = False
+        self._last_committed_slider_value = DEFAULT_HEIGHT_CM
+
+        self._build()
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
+    def _build(self) -> None:
+        central = QWidget(self)
+        central.setObjectName("root")
+        self.setCentralWidget(central)
+
+        root = _vbox(margin=12, spacing=10)
+        central.setLayout(root)
+
+        root.addWidget(self._build_osc_card())
+        root.addWidget(self._build_height_card())
+        root.addWidget(self._build_profiles_card())
+        root.addWidget(self._build_settings_card())
+        root.addWidget(self._build_startup_card())
+        root.addLayout(self._build_quit_row())
+
+    def _build_osc_card(self) -> QFrame:
+        card = _Card()
+        outer = _vbox(margin=12, spacing=8)
+        card.setLayout(outer)
+
+        title = QLabel("OSC Connection")
+        title.setObjectName("sectionTitle")
+        outer.addWidget(title)
+
+        # Local port + VRChat port on one row
+        port_row = _hbox(spacing=10)
+
+        port_row.addWidget(QLabel("Local OSC port:"))
+        self.local_port_label = QLabel("…")
+        self.local_port_label.setObjectName("statusPortPending")
+        self.local_port_label.setMinimumWidth(60)
+        port_row.addWidget(self.local_port_label)
+
+        port_row.addSpacing(20)
+
+        port_row.addWidget(QLabel("VRChat OSC port:"))
+        self.vrchat_port_label = QLabel("waiting…")
+        self.vrchat_port_label.setObjectName("statusPortPending")
+        self.vrchat_port_label.setMinimumWidth(60)
+        port_row.addWidget(self.vrchat_port_label)
+
+        port_row.addStretch(1)
+        outer.addLayout(port_row)
+
+        # IP entry + Apply
+        ip_row = _hbox(spacing=8)
+        ip_row.addWidget(QLabel("VRChat IP:"))
+        self.ip_entry = QLineEdit()
+        self.ip_entry.setText("127.0.0.1")
+        self.ip_entry.setMaximumWidth(160)
+        ip_row.addWidget(self.ip_entry)
+
+        apply_btn = QPushButton("Apply")
+        apply_btn.setProperty("role", "secondary")
+        apply_btn.clicked.connect(self._on_apply_ip)
+        ip_row.addWidget(apply_btn)
+        ip_row.addStretch(1)
+        outer.addLayout(ip_row)
+
+        # Connection status text
+        self.connection_label = QLabel("Waiting for VRChat…")
+        self.connection_label.setProperty("muted", "true")
+        outer.addWidget(self.connection_label)
+
+        return card
+
+    def _build_height_card(self) -> QFrame:
+        card = _Card()
+        outer = _vbox(margin=12, spacing=10)
+        card.setLayout(outer)
+
+        title = QLabel("Current Height")
+        title.setObjectName("sectionTitle")
+        outer.addWidget(title)
+
+        # +cm buttons row
+        plus_row = _hbox(spacing=8)
+        plus_row.addStretch(1)
+        for delta in (1, 10, 100):
+            btn = QPushButton(f"+{delta} cm")
+            btn.setProperty("role", "secondary")
+            btn.clicked.connect(lambda _checked=False, d=delta: self.adjust_clicked.emit(d))
+            plus_row.addWidget(btn)
+        plus_row.addStretch(1)
+        outer.addLayout(plus_row)
+
+        # Display + refresh
+        display_row = _hbox(spacing=8)
+        display_row.addStretch(1)
+        self.height_display = QLabel("Not Loaded")
+        self.height_display.setObjectName("heightDisplayNotLoaded")
+        self.height_display.setAlignment(Qt.AlignCenter)
+        display_row.addWidget(self.height_display)
+        display_row.addStretch(1)
+
+        refresh_btn = QPushButton("↻")
+        refresh_btn.setProperty("role", "secondary")
+        refresh_btn.setToolTip("Re-query VRChat for the current eye height")
+        refresh_btn.setFixedWidth(36)
+        refresh_btn.clicked.connect(self.refresh_height_clicked.emit)
+        display_row.addWidget(refresh_btn)
+        outer.addLayout(display_row)
+
+        # -cm buttons row
+        minus_row = _hbox(spacing=8)
+        minus_row.addStretch(1)
+        for delta in (1, 10, 100):
+            btn = QPushButton(f"-{delta} cm")
+            btn.setProperty("role", "secondary")
+            btn.clicked.connect(lambda _checked=False, d=-delta: self.adjust_clicked.emit(d))
+            minus_row.addWidget(btn)
+        minus_row.addStretch(1)
+        outer.addLayout(minus_row)
+
+        # Slider + min/max entries
+        slider_row = _hbox(spacing=10)
+        slider_row.addWidget(QLabel("Min:"))
+        self.slider_min_entry = QLineEdit(str(MIN_HEIGHT_CM))
+        self.slider_min_entry.setMaximumWidth(60)
+        self.slider_min_entry.editingFinished.connect(self._on_slider_range_changed)
+        slider_row.addWidget(self.slider_min_entry)
+
+        self.height_slider = QSlider(Qt.Horizontal)
+        self.height_slider.setRange(MIN_HEIGHT_CM, MAX_HEIGHT_CM)
+        self.height_slider.setValue(DEFAULT_HEIGHT_CM)
+        self.height_slider.valueChanged.connect(self._on_slider_value_changed)
+        self.height_slider.sliderReleased.connect(self._on_slider_released)
+        slider_row.addWidget(self.height_slider, stretch=1)
+
+        slider_row.addWidget(QLabel("Max:"))
+        self.slider_max_entry = QLineEdit(str(MAX_HEIGHT_CM))
+        self.slider_max_entry.setMaximumWidth(80)
+        self.slider_max_entry.editingFinished.connect(self._on_slider_range_changed)
+        slider_row.addWidget(self.slider_max_entry)
+
+        outer.addLayout(slider_row)
+        return card
+
+    def _build_profiles_card(self) -> QFrame:
+        card = _Card()
+        outer = _vbox(margin=12, spacing=8)
+        card.setLayout(outer)
+
+        title = QLabel("Height Profiles")
+        title.setObjectName("sectionTitle")
+        outer.addWidget(title)
+
+        for i in range(1, 5):
+            row = _hbox(spacing=10)
+            label = QLabel(f"Profile {i}:")
+            label.setMinimumWidth(80)
+            row.addWidget(label)
+
+            value_label = QLabel("—")
+            value_label.setProperty("muted", "true")
+            value_label.setMinimumWidth(80)
+            self.profile_value_labels[i] = value_label
+            row.addWidget(value_label)
+
+            row.addStretch(1)
+
+            save_btn = QPushButton("Save")
+            save_btn.setProperty("role", "success")
+            save_btn.setMaximumWidth(80)
+            save_btn.clicked.connect(lambda _c=False, n=i: self.profile_save.emit(n))
+            row.addWidget(save_btn)
+
+            load_btn = QPushButton("Load")
+            load_btn.setMaximumWidth(80)
+            load_btn.clicked.connect(lambda _c=False, n=i: self.profile_load.emit(n))
+            row.addWidget(load_btn)
+
+            outer.addLayout(row)
+        return card
+
+    def _build_settings_card(self) -> QFrame:
+        card = _Card()
+        outer = _vbox(margin=12, spacing=8)
+        card.setLayout(outer)
+
+        title = QLabel("Settings")
+        title.setObjectName("sectionTitle")
+        outer.addWidget(title)
+
+        self.preserve_checkbox = QCheckBox("Preserve height on avatar switch")
+        self.preserve_checkbox.toggled.connect(self.preserve_toggled.emit)
+        outer.addWidget(self.preserve_checkbox)
+
+        self.hide_console_checkbox = QCheckBox("Hide console window")
+        self.hide_console_checkbox.toggled.connect(self.hide_console_toggled.emit)
+        outer.addWidget(self.hide_console_checkbox)
+
+        return card
+
+    def _build_startup_card(self) -> QFrame:
+        card = _Card()
+        outer = _vbox(margin=12, spacing=8)
+        card.setLayout(outer)
+
+        title = QLabel("Startup Mode")
+        title.setObjectName("sectionTitle")
+        outer.addWidget(title)
+
+        row = _hbox(spacing=10)
+        self.startup_combo = QComboBox()
+        self.startup_combo.addItem("Query current height", userData="query")
+        self.startup_combo.addItem("Load fixed height", userData="fixed_height")
+        self.startup_combo.currentIndexChanged.connect(self._on_startup_mode_changed)
+        row.addWidget(self.startup_combo)
+
+        self.fixed_height_entry = QLineEdit(str(DEFAULT_HEIGHT_CM))
+        self.fixed_height_entry.setMaximumWidth(80)
+        self.fixed_height_entry.editingFinished.connect(self._on_startup_height_changed)
+        row.addWidget(self.fixed_height_entry)
+
+        row.addStretch(1)
+        outer.addLayout(row)
+        return card
+
+    def _build_quit_row(self) -> QHBoxLayout:
+        row = _hbox(spacing=8)
+        row.addStretch(1)
+        quit_btn = QPushButton("Quit")
+        quit_btn.setProperty("role", "danger")
+        quit_btn.setMinimumWidth(100)
+        quit_btn.clicked.connect(self.quit_clicked.emit)
+        row.addWidget(quit_btn)
+        return row
+
+    # ------------------------------------------------------------------
+    # Internal slot handlers
+    # ------------------------------------------------------------------
+
+    def _on_apply_ip(self) -> None:
+        text = self.ip_entry.text().strip() if self.ip_entry else ""
+        if text:
+            self.apply_ip_clicked.emit(text)
+
+    def _on_slider_value_changed(self, value: int) -> None:
+        if self._suppress_slider_signal:
+            return
+        self.slider_dragging.emit(int(value))
+
+    def _on_slider_released(self) -> None:
+        if self._suppress_slider_signal or self.height_slider is None:
+            return
+        value = self.height_slider.value()
+        if value != self._last_committed_slider_value:
+            self._last_committed_slider_value = value
+            self.slider_changed.emit(int(value))
+
+    def _on_slider_range_changed(self) -> None:
         try:
-            fixed_height = int(app.fixed_height_var.get())
-            app.startup_height = fixed_height
+            min_val = int(float(self.slider_min_entry.text())) if self.slider_min_entry else MIN_HEIGHT_CM
+            max_val = int(float(self.slider_max_entry.text())) if self.slider_max_entry else MAX_HEIGHT_CM
         except (ValueError, TypeError):
-            pass
-    
-    app.fixed_height_var.trace_add("write", on_fixed_height_change)
-    
-    # Quit button frame (bottom right)
-    quit_frame = ctk.CTkFrame(main_frame)
-    quit_frame.pack(fill="x", pady=(0, 10))
-    
-    quit_btn = ctk.CTkButton(
-        quit_frame,
-        text="Quit",
-        command=app.on_closing,
-        fg_color=COLOR_DANGER,
-        hover_color=COLOR_DANGER_HOVER,
-        width=100
-    )
-    quit_btn.pack(side="right", padx=10, pady=5)
-
-
-def save_preserve_flag(app):
-    """Save the preserve height on avatar switch setting."""
-    new_value = app.preserve_height_var.get()
-    # Update config via ConfigManager (thread-safe, saves to file)
-    app.config_manager.update_config({"preserve_height_on_avatar_switch": new_value})
-    # Update in-memory variable for immediate effect
-    with app._height_lock:
-        app.preserve_height_on_avatar = new_value
-
-
-def save_hide_console_flag(app):
-    """Save the hide console setting."""
-    new_value = app.hide_console_var.get()
-    # Call _toggle_console_visibility to show/hide console immediately
-    app._toggle_console_visibility()
-
-
-def on_startup_mode_change(mode, app):
-    """Callback when startup mode changes."""
-    if mode == "Load Fixed Height":
-        app.fixed_height_entry.pack(side="left", padx=10, pady=5)
-        # Save the fixed height value
-        try:
-            fixed_height = int(app.fixed_height_var.get())
-            app.startup_height = fixed_height
-        except (ValueError, TypeError):
-            pass
-    else:
-        app.fixed_height_entry.pack_forget()
-    
-    # Update app variable and save config via ConfigManager (thread-safe)
-    app.startup_mode = mode
-    # Map UI display value to config value: "Load Fixed Height" -> "fixed_height", "Query Current Height" -> "query"
-    config_mode_value = "fixed_height" if mode == "Load Fixed Height" else "query"
-    app.config_manager.update_config({"startup_mode": config_mode_value})
-
-
-def create_adjust_button(parent, text, value, app):
-    """Create an adjustment button."""
-    btn = ctk.CTkButton(
-        parent,
-        text=text,
-        command=lambda v=value: app.adjust_height(v)
-    )
-    btn.pack(side="left", padx=(5, 5))
-
-
-def refresh_profile_display(app):
-    """Refresh the profile display labels."""
-    for i in range(1, 5):
-        profile_key = f"profile{i}"
-        height = app.profiles.get(profile_key, 0)
-        app.profile_labels[i].set(f"{height} cm")
-
-
-def on_slider_range_change(app):
-    """Callback when min/max slider range values change."""
-    try:
-        min_val = int(float(app.slider_min_var.get()))
-        max_val = int(float(app.slider_max_var.get()))
-        
-        # Ensure min < max
+            return
         if min_val >= max_val:
             return
-        
-        # Update slider range
-        app.height_slider.configure(from_=min_val, to=max_val)
-        
-    except (ValueError, TypeError):
-        pass
+        self.set_slider_range(min_val, max_val, emit=True)
 
+    def _on_startup_mode_changed(self, index: int) -> None:
+        if self.startup_combo is None:
+            return
+        mode = self.startup_combo.itemData(index)
+        if not isinstance(mode, str):
+            return
+        if self.fixed_height_entry is not None:
+            self.fixed_height_entry.setVisible(mode == "fixed_height")
+        self.startup_mode_changed.emit(mode)
 
-def on_slider_change(value, app=None):
-    """Callback when slider value changes."""
-    if app is not None and hasattr(app, 'current_height'):
+    def _on_startup_height_changed(self) -> None:
+        if self.fixed_height_entry is None:
+            return
         try:
-            min_val = int(float(app.slider_min_var.get()))
-            max_val = int(float(app.slider_max_var.get()))
-            value = max(min_val, min(max_val, float(value)))
+            value = int(float(self.fixed_height_entry.text()))
         except (ValueError, TypeError):
-            pass
-        
-        height = round_height_cm(value)
-        
-        # Update the current height display
-        app.current_height.set(height)
-        update_display(app)
-        
-        # Send to VRChat
-        if hasattr(app, 'send_height'):
-            app.send_height(height)
+            return
+        self.startup_height_changed.emit(value)
+
+    # ------------------------------------------------------------------
+    # Public setters (controller -> view)
+    # ------------------------------------------------------------------
+
+    def set_local_port(self, port: Optional[int]) -> None:
+        if self.local_port_label is None:
+            return
+        if port:
+            self.local_port_label.setText(str(port))
+            self.local_port_label.setObjectName("statusPort")
+        else:
+            self.local_port_label.setText("…")
+            self.local_port_label.setObjectName("statusPortPending")
+        self._restyle(self.local_port_label)
+
+    def set_vrchat_port(self, port: Optional[int]) -> None:
+        if self.vrchat_port_label is None:
+            return
+        if port:
+            self.vrchat_port_label.setText(str(port))
+            self.vrchat_port_label.setObjectName("statusPort")
+        else:
+            self.vrchat_port_label.setText("waiting…")
+            self.vrchat_port_label.setObjectName("statusPortPending")
+        self._restyle(self.vrchat_port_label)
+
+    def set_connection_status(self, text: str, connected: bool) -> None:
+        if self.connection_label is None:
+            return
+        self.connection_label.setText(text)
+        self.connection_label.setProperty(
+            "connectionState", "connected" if connected else "waiting"
+        )
+        self._restyle(self.connection_label)
+
+    def set_ip(self, ip: str) -> None:
+        if self.ip_entry is not None:
+            self.ip_entry.setText(ip)
+
+    def set_height_display(self, height_cm: Optional[int]) -> None:
+        if self.height_display is None:
+            return
+        if height_cm is None:
+            self.height_display.setText("Not Loaded")
+            self.height_display.setObjectName("heightDisplayNotLoaded")
+        else:
+            self.height_display.setText(f"{height_cm} cm")
+            self.height_display.setObjectName("heightDisplay")
+        self._restyle(self.height_display)
+
+    def set_slider_value(self, value: int) -> None:
+        if self.height_slider is None:
+            return
+        self._suppress_slider_signal = True
+        try:
+            self.height_slider.setValue(int(value))
+            self._last_committed_slider_value = int(value)
+        finally:
+            self._suppress_slider_signal = False
+
+    def set_slider_range(self, minimum: int, maximum: int, *, emit: bool = False) -> None:
+        if self.height_slider is None:
+            return
+        if minimum >= maximum:
+            return
+        self._suppress_slider_signal = True
+        try:
+            current = self.height_slider.value()
+            self.height_slider.setRange(int(minimum), int(maximum))
+            if self.slider_min_entry is not None and self.slider_min_entry.text() != str(minimum):
+                self.slider_min_entry.setText(str(minimum))
+            if self.slider_max_entry is not None and self.slider_max_entry.text() != str(maximum):
+                self.slider_max_entry.setText(str(maximum))
+            # Clamp existing position
+            clamped = max(minimum, min(maximum, current))
+            if clamped != current:
+                self.height_slider.setValue(clamped)
+                self._last_committed_slider_value = clamped
+        finally:
+            self._suppress_slider_signal = False
+        if emit:
+            self.slider_range_changed.emit(int(minimum), int(maximum))
+
+    def set_profile_value(self, profile_num: int, height_cm: Optional[int]) -> None:
+        label = self.profile_value_labels.get(profile_num)
+        if label is None:
+            return
+        label.setText(f"{height_cm} cm" if height_cm is not None else "—")
+
+    def set_preserve(self, checked: bool) -> None:
+        if self.preserve_checkbox is not None:
+            self.preserve_checkbox.blockSignals(True)
+            self.preserve_checkbox.setChecked(bool(checked))
+            self.preserve_checkbox.blockSignals(False)
+
+    def set_hide_console(self, checked: bool) -> None:
+        if self.hide_console_checkbox is not None:
+            self.hide_console_checkbox.blockSignals(True)
+            self.hide_console_checkbox.setChecked(bool(checked))
+            self.hide_console_checkbox.blockSignals(False)
+
+    def set_startup_mode(self, mode: str) -> None:
+        if self.startup_combo is None:
+            return
+        for i in range(self.startup_combo.count()):
+            if self.startup_combo.itemData(i) == mode:
+                self.startup_combo.blockSignals(True)
+                self.startup_combo.setCurrentIndex(i)
+                self.startup_combo.blockSignals(False)
+                break
+        if self.fixed_height_entry is not None:
+            self.fixed_height_entry.setVisible(mode == "fixed_height")
+
+    def set_startup_height(self, value: int) -> None:
+        if self.fixed_height_entry is not None:
+            self.fixed_height_entry.setText(str(int(value)))
+
+    # ------------------------------------------------------------------
+    # Close handling
+    # ------------------------------------------------------------------
+
+    def set_close_handler(self, cb: Callable[[], None]) -> None:
+        """Controller calls this once during wiring."""
+        self._close_handler = cb
+
+    def closeEvent(self, event):  # noqa: N802 (Qt API)
+        cb = self._close_handler
+        if cb is not None:
+            try:
+                cb()
+            except Exception:
+                pass
+        event.accept()
+
+    # ------------------------------------------------------------------
+    # Style helper
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _restyle(widget: QWidget) -> None:
+        """Force a QSS re-evaluation after setObjectName / setProperty."""
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
 
 
-def update_display(app):
-    """Update the height display."""
-    if not app.height_loaded:
-        app.height_display.configure(text="Not Loaded", text_color=COLOR_NOT_LOADED)
-    else:
-        height = app.current_height.get()
-        app.height_display.configure(text=f"{height} cm", text_color="white")
+def apply_global_style(app: QApplication) -> None:
+    app.setStyleSheet(GLOBAL_QSS)

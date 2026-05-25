@@ -2,70 +2,70 @@
 
 ## Prerequisites
 
-Before building the executable, ensure you have the following installed:
-
-1. **Python** (version 3.7 or higher)
+1. **Python 3.9 or higher** (PySide6 requires it)
    - Download from [python.org](https://www.python.org/downloads/)
-   - Make sure Python is added to your system PATH during installation
+   - Add Python to your system PATH during installation
+2. **PyInstaller** (the build script installs it automatically if missing)
+3. **`OSC_Scale.ico`** — already shipped in the project root
 
-2. **PyInstaller** (installed automatically by build.bat)
-   - This build script will install PyInstaller if not already present
+## How to build
 
-3. **Your custom .ico file**
-   - Place your high-quality `OSC_Scale.ico` file in the project directory before building
-   - The app uses your provided `.ico` file for the executable icon
-
-## How to Build
-
-### Method 1: Using the Build Script (Recommended)
+### Method 1: build.bat (recommended)
 
 1. Open File Explorer and navigate to the project folder
 2. Double-click `build.bat`
-3. Wait for the build to complete (this may take a few minutes)
+3. Wait for the build to finish (first run may take a few minutes while
+   PyInstaller downloads PySide6's Qt binaries)
 
-The build script will:
-- Check if Python is installed
-- Install required dependencies (PyInstaller, customtkinter, python-osc, zeroconf)
-- Clean previous build files
-- Create the standalone executable with your custom icon
-- Remove temporary build files
+The script installs PyInstaller + PySide6 + python-osc + zeroconf +
+requests on demand, cleans previous artefacts, and produces a windowed
+single-file executable.
 
-### Method 2: Manual Build
-
-If you prefer to build manually, run these commands in Command Prompt:
+### Method 2: manual
 
 ```cmd
-cd path\to\project
+cd path\to\HeightShiftOSC
 
-# Install dependencies
-pip install pyinstaller customtkinter python-osc zeroconf requests
+pip install -r requirements.txt pyinstaller
 
-# Build the executable
 pyinstaller --onefile --windowed ^
     --icon="OSC_Scale.ico" ^
+    --add-data "OSC_Scale.ico;." ^
     --name "HeightShiftOSC" ^
     main.py
 ```
 
-## Output Location
+## Output location
 
-The final executable will be located at:
 ```
 dist\HeightShiftOSC.exe
 ```
 
-## Notes
+## Runtime notes
 
-- The first build may take longer as dependencies are downloaded
-- The executable is self-contained and doesn't require Python to be installed on the target machine
-- The config file will be created in `%APPDATA%\HeightShiftOSC\` on first run
+- The executable is self-contained — Python and PySide6 are bundled
+- Settings live under `%APPDATA%\HeightShiftOSC\HeightShiftOSC_config.json`
+- A diagnostics log is written to `%APPDATA%\HeightShiftOSC\osc_diagnostics.log`
+  (rotated at ~1 MB) — handy for debugging connection issues
 
-## Firewall Configuration
+## Networking
 
-To allow VRChat OSC communication, ensure your firewall permits:
-- **UDP outbound** to VRChat's OSC port (commonly 9000)
-- **UDP inbound** on a random high port for receiving OSC messages (auto-discovered via mDNS)
+The HTTP OSCQuery phonebook binds to **127.0.0.1 only**. Windows
+Defender otherwise silently drops inbound traffic from VRChat to
+sockets bound to `0.0.0.0` unless the user has approved a firewall
+rule for the exe. Loopback-bound sockets skip firewall gating
+entirely, which matches what VRCFT and VRCOSC do.
 
-The application automatically discovers VRChat's OSC and OSCQuery ports using mDNS. If auto-discovery fails, ensure your firewall allows outbound connections to common VRChat ports.
+The UDP OSC listener also binds to 127.0.0.1. VRChat-to-OSC traffic is
+loopback in 99% of setups; if you need LAN OSC you'll need to edit
+`osc_manager.py` and add a secondary bind on `0.0.0.0` (and approve a
+firewall rule).
 
-If VRChat cannot connect to your computer, check your firewall settings.
+If VRChat isn't routing packets to HeightShiftOSC even though the
+mDNS handshake succeeded, try:
+
+1. **VRChat → Settings → OSC → Reset** — clears VRChat's OSCQuery cache
+2. Close other OSC tools (VRCFT, VRCOSC, OscGoesPurrr) and reconnect
+3. Watch `%APPDATA%\HeightShiftOSC\osc_diagnostics.log` for the
+   silent-connection warnings — the manager will eventually
+   re-publish under a fresh mDNS name to self-heal
