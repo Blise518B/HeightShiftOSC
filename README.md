@@ -4,85 +4,90 @@ A desktop application to adjust avatar height in VRChat via OSC messages, allowi
 
 ## Features
 
-- Real-time height adjustment (1 cm - 100 m range)
+- Real-time height adjustment (1 cm – 100 m range)
 - Quick-adjust buttons (±1 cm, ±10 cm, ±100 cm)
+- Slider with a configurable min/max range
 - Profile system to save/load commonly used heights (4 profiles)
-- OSC connection to VRChat (auto-discovered or configurable IP/Port)
-- Window geometry persistence
-- Dark-themed modern UI
+- Automatic OSC/OSCQuery discovery of VRChat (manual IP override available)
+- Window size persistence
+- Dark-themed PySide6 (Qt) UI
 
 ### Advanced Features
 
-- **Startup Mode Selection**: Choose between querying current VRChat height or loading a fixed height on startup
+- **Startup Mode Selection**: Choose between querying the current VRChat height or loading a fixed height on startup
 - **Preserve Height on Avatar Switch**: Automatically restore your custom height when switching avatars in VRChat
-- **Rapid Burst System**: Sends multiple OSC messages over 2 seconds after avatar swap to ensure height locks properly
-- **mDNS Discovery**: Automatically discovers VRChat's OSCQuery and OSC ports via Zeroconf
+- **Rapid Burst System**: Sends multiple OSC messages over ~2 seconds after an avatar swap to ensure the height locks in properly
+- **mDNS Discovery**: Automatically discovers VRChat's OSCQuery and OSC ports via Zeroconf, with a self-healing watchdog for the "connected but no packets" failure mode
+- **Hide Console**: Optionally hides the console window on Windows
 
 ## Prerequisites
 
-- Python 3.x (3.7 or higher recommended)
-- customtkinter
-- python-osc package
-- zeroconf (for mDNS/Zeroconf auto-discovery of VRChat OSC ports)
-- requests (for HTTP queries to VRChat's OSCQuery API)
+- Python 3.8 or higher
+- The packages listed in [`requirements.txt`](requirements.txt):
+  - `PySide6` (Qt UI)
+  - `python-osc` (OSC messaging)
+  - `zeroconf` (mDNS/Zeroconf auto-discovery of VRChat's ports)
+  - `requests` (HTTP queries to VRChat's OSCQuery API)
 
 ## Installation
 
 1. Clone or download this repository
-2. Install the required Python packages:
+2. (Recommended) create and activate a virtual environment
+3. Install the required Python packages:
    ```bash
-   pip install customtkinter python-osc zeroconf requests
+   pip install -r requirements.txt
    ```
-3. Place your custom .ico file (`HeightShiftOSC.ico`) in the project directory
 4. Run the application:
    ```bash
    python main.py
    ```
 
-**Note:** The application now uses a provided .ico file instead of automatically converting PNG to ICO. If you don't have a custom icon file, the app will run with a default Windows icon.
+**Note:** The app looks for an optional icon file named `OSC_Scale.ico` next to `main.py`. If it isn't present, the app runs with a default window icon.
 
 ## Usage
 
-1. **Launch the application** with `python main.py`
-2. **Configure OSC connection**:
-   - Enter your VRChat OSC server IP address (default: `127.0.0.1`)
-   - Enter the OSC port number (default: `9000`)
-   - Click **Connect** to establish the connection
+1. **Launch the application** with `python main.py`.
+2. **OSC connection** — no manual connect step is needed. The app advertises itself via OSCQuery and discovers VRChat automatically over mDNS; the **Local OSC port** and **VRChat OSC port** fields update once VRChat is found.
+   - If you need to target a non-default address, type it into the **VRChat IP** field and click **Apply** (default: `127.0.0.1`).
 3. **Adjust height**:
-   - Use the +/- buttons on the left/right sides for quick adjustments
-   - Adjustments are: ±1 cm, ±10 cm, ±100 cm
+   - Use the **+/- buttons** for quick adjustments of ±1 cm, ±10 cm, and ±100 cm.
+   - Drag the **slider**, or edit the **Min/Max** boxes to change its range.
+   - Click **↻** to re-query VRChat for the current eye height.
 4. **Save and load profiles**:
-    - Click **Save** next to any profile (1-4) to save the current height
-    - Click **Load** to restore a saved profile height
+   - Click **Save** next to any profile (1–4) to store the current height.
+   - Click **Load** to apply a saved profile height.
 
 ## VRChat Setup
 
-1. Open VRChat and go to **Settings** (gear icon)
-2. Navigate to the **Network** tab
-3. Enable **OSC Server**
-4. Configure the port (default is `9000`)
-5. Ensure your computer's firewall allows incoming connections on this port
+1. In VRChat, open the **Action Menu → Options → OSC** and make sure **OSC is enabled**.
+2. Leave the port at its default (`9000`) unless you have a specific reason to change it — HeightShiftOSC discovers the active port automatically via OSCQuery.
+3. If discovery ever fails, you can set the target address manually with the **VRChat IP** field and **Apply** button.
 
 ### Automatic Port Discovery
 
-The application automatically discovers VRChat's OSC and OSCQuery ports using mDNS (Zeroconf). If auto-discovery fails, you can manually enter the VRChat IP address and configure the port in the app.
+The application automatically discovers VRChat's OSC and OSCQuery ports using mDNS (Zeroconf). All sockets are bound to `127.0.0.1` (loopback only), which avoids Windows Defender Firewall prompts for inbound traffic.
 
 ## Configuration
 
-The application stores settings in `HeightShiftOSC_config.json`:
-- `osc_ip`: IP address of the VRChat OSC server
-- `osc_port`: Port number for OSC communication (auto-discovered via mDNS)
-- `height_range`: Minimum and maximum height (in cm)
-- `profiles`: Saved height profiles (Profile 1-4)
-- `startup_height`: Default height to load on startup (for "Load Fixed Height" mode)
-- `startup_mode`: Startup behavior (`query` or `fixed_height`)
-- `preserve_height_on_avatar_switch`: Whether to restore height when switching avatars
-- `window_geometry`: Window position and size
+Settings are stored as JSON and written atomically (so a crash during a save can't corrupt the file). Keys:
 
-### Config File Location
-- Windows: `%APPDATA%\HeightShiftOSC\HeightShiftOSC_config.json`
-- macOS: `~/Library/Application Support/HeightShiftOSC/HeightShiftOSC_config.json`
-- Linux: `~/.config/HeightShiftOSC/HeightShiftOSC_config.json`
+- `osc_ip`: IP address of the VRChat OSC target
+- `profiles`: Saved height profiles (`profile1`–`profile4`, in cm)
+- `startup_mode`: Startup behaviour (`query` or `fixed_height`)
+- `startup_height`: Height (cm) to send on startup in `fixed_height` mode
+- `slider_min_value` / `slider_max_value`: Configurable slider range (cm)
+- `preserve_height_on_avatar_switch`: Whether to restore height when switching avatars
+- `hide_console`: Whether to hide the console window on Windows
+- `window_geometry`: Last window **size** as `"WIDTHxHEIGHT"`
+- `vrchat_discovered_osc_port`: The VRChat OSC port last discovered via mDNS (informational)
+
+### File Locations
+
+| OS | Config | Diagnostics log |
+|----|--------|-----------------|
+| Windows | `%APPDATA%\HeightShiftOSC\HeightShiftOSC_config.json` | `%APPDATA%\HeightShiftOSC\osc_diagnostics.log` |
+| macOS | `~/Library/Application Support/HeightShiftOSC/HeightShiftOSC_config.json` | `~/Library/.../osc_diagnostics.log` |
+| Linux | `~/.config/HeightShiftOSC/HeightShiftOSC_config.json` | `~/.config/.../osc_diagnostics.log` |
 
 ## OSC Message Details
 
@@ -103,26 +108,25 @@ The application sends OSC messages to VRChat using the following address:
 
 ## Range Notes
 
-- **Minimum height**: 1 cm (0.01 m) - Very small avatar
-- **Maximum height**: 100 m (10,000 cm) - Giant avatar
-- Default height: 170 cm (1.7 m) - Human average
-- Default range in config: [1, 10000] cm (can be modified)
+- **Minimum height**: 1 cm (0.01 m) — very small avatar
+- **Maximum height**: 100 m (10,000 cm) — giant avatar
+- Default height: 170 cm (1.7 m) — human average
+- Default slider range: [1, 10000] cm (adjustable via the Min/Max boxes)
 
 ### VRChat Supported Range
 
-VRChat officially supports heights between **10 cm and 100 m**. Values outside this range will show a warning on the HUD.
-- **Below 10 cm**: Shows warning, Udon may enforce limits (default min: 20 cm)
-- **Above 100 m**: Shows warning, Udon may enforce limits (default max: 5 m)
+VRChat officially supports heights between **10 cm and 100 m**. Values outside this range may show a warning on the HUD, and an avatar's Udon logic can enforce its own limits.
 
-## Startup Default Size
+## Startup Mode
 
-The application supports saving a default height that loads automatically when the app starts:
-- Click **Save** to save the current height as the startup height
-- Click **Load** to restore the saved startup height
+The **Startup Mode** card controls what the app does when it launches:
+
+- **Query current height** — ask VRChat for the avatar's current eye height and display it.
+- **Load fixed height** — send a saved fixed height on startup. Enter the value in the box next to the dropdown.
 
 ## Screenshots
 
-![HeightShiftOSC Interface](HeightShiftOSC.png)
+![HeightShiftOSC Interface](OSC_Scale.png)
 
 ## License
 
@@ -147,5 +151,5 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 Please ensure all pull requests adhere to the following:
 - Follow existing code style
-- Add tests if applicable
+- Add tests if applicable (run them with `python -m unittest discover -s tests`)
 - Update documentation as needed

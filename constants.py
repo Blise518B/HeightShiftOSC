@@ -7,7 +7,6 @@ look like a family.
 """
 
 # --- VRChat OSC Configuration ---
-VRCHAT_OSC_IP = "127.0.0.1"
 VRCHAT_OSC_PATH = "/avatar/eyeheight"
 VRCHAT_AVATAR_CHANGE_PATH = "/avatar/change"
 VRC_DEFAULT_PORT = 9000
@@ -24,18 +23,8 @@ MIN_HEIGHT_CM = 1
 MAX_HEIGHT_CM = 10000
 DEFAULT_HEIGHT_CM = 170
 
-# VRChat's officially supported range
-VRCHAT_MIN_HEIGHT_CM = 10
-VRCHAT_MAX_HEIGHT_CM = 10000
-
-# Adjustment increments (in cm)
-ADJUST_SMALL = 1
-ADJUST_MEDIUM = 10
-ADJUST_LARGE = 100
-
 # --- Network Timeouts ---
 VRCHAT_HTTP_TIMEOUT = 2.0
-VRCHAT_MDNS_BROWSE_TIMEOUT = 1.5
 
 # --- Application Identity ---
 APP_NAME = "HeightShiftOSC"
@@ -45,9 +34,6 @@ CONFIG_FILE_NAME = "HeightShiftOSC_config.json"
 # --- Window Configuration ---
 DEFAULT_WINDOW_WIDTH = 560
 DEFAULT_WINDOW_HEIGHT = 780
-
-# --- Profile Configuration ---
-MAX_PROFILES = 4
 
 # --- Rapid Burst Configuration (avatar-change height preservation) ---
 BURST_DURATION = 2.0
@@ -96,10 +82,6 @@ COLOR_INPUT_FOCUS = "#9A7BFF"
 
 COLOR_TEXT = "#FFFFFF"
 COLOR_TEXT_MUTED = "#9A9AB8"
-
-# Legacy names still referenced by code that hasn't migrated yet
-COLOR_NOT_LOADED = COLOR_WARNING
-COLOR_NORMAL_TEXT = COLOR_TEXT
 
 # --- Logging ---
 LOG_FORMAT = "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s"

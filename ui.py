@@ -583,6 +583,11 @@ class HeightShiftWindow(QMainWindow):
             max_val = int(float(self.slider_max_entry.text())) if self.slider_max_entry else MAX_HEIGHT_CM
         except (ValueError, TypeError):
             return
+        # Clamp to the app's absolute limits so the slider can't be widened
+        # past the range we'll actually send to VRChat. set_slider_range
+        # rewrites the entry text, so the boxes get corrected too.
+        min_val = max(MIN_HEIGHT_CM, min(MAX_HEIGHT_CM, min_val))
+        max_val = max(MIN_HEIGHT_CM, min(MAX_HEIGHT_CM, max_val))
         if min_val >= max_val:
             return
         self.set_slider_range(min_val, max_val, emit=True)

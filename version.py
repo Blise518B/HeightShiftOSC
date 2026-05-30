@@ -15,6 +15,11 @@
 # lookups — important because each subprocess.run on a --windowed exe would
 # otherwise flash a console window at startup.
 
+# `from __future__ import annotations` keeps the PEP 585 builtin generics
+# below (list[str], tuple[str, str]) from being evaluated at def-time, so
+# this module still imports on Python 3.7 / 3.8.
+from __future__ import annotations
+
 import re
 import subprocess
 

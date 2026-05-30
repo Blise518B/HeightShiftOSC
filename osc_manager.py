@@ -28,7 +28,7 @@ import random
 import socket
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -175,12 +175,24 @@ class VRChatOSCManager:
         self.local_listen_port = local_listen_port
         self.http_listen_port: Optional[int] = None
         self.is_connected = False
+        # Serialises connected/disconnected transitions so the health-check
+        # thread and the mDNS-removed handler can't both flip the flag and
+        # double-fire the disconnect callback.
+        self._state_lock = threading.Lock()
 
         # mDNS service info (populated after first VRChat discovery)
         self.service_info: Optional[ServiceInfo] = None
         self.service_info_json: Optional[ServiceInfo] = None
         self.host_info: Dict[str, Any] = {}
         self.osc_tree: Dict[str, Any] = {}
+
+        # Cache of every avatar-tree parameter VRChat has filled in. Keys
+        # are full OSC paths (e.g. "/avatar/eyeheight"); values are the
+        # latest VALUE seen via a fetch or an incoming OSC packet. Created
+        # eagerly here (not lazily) so the several threads that touch it —
+        # the OSC handler, the resolver, the prefetch, and HTTP queries —
+        # can never race on first-init.
+        self._param_cache: Dict[str, Any] = {}
 
         # User-facing callbacks
         self.on_connected: Optional[Callable[[Dict[str, Any]], None]] = None
@@ -213,7 +225,7 @@ class VRChatOSCManager:
         self._diag_thread: Optional[threading.Thread] = None
         self._mdns_refresh_thread: Optional[threading.Thread] = None
         self.browser: Optional[ServiceBrowser] = None
-        self.http_server: Optional[HTTPServer] = None
+        self.http_server: Optional[ThreadingHTTPServer] = None
 
     # ------------------------------------------------------------------
     # Logging helper
@@ -522,7 +534,7 @@ class VRChatOSCManager:
             },
         }
 
-        self.http_server = HTTPServer(
+        self.http_server = ThreadingHTTPServer(
             (http_bind_ip, self.http_listen_port),
             lambda *args, **kwargs: OSCQueryHandler(
                 *args,
@@ -646,7 +658,8 @@ class VRChatOSCManager:
             )
 
             self.osc_client = SimpleUDPClient(self.vrc_ip, self.vrc_osc_port)
-            self.is_connected = True
+            with self._state_lock:
+                self.is_connected = True
             self._connected_since = time.time()
             self._silent_warning_logged = False
             self._silent_reprobe_attempted = False
@@ -670,7 +683,7 @@ class VRChatOSCManager:
 
             if self.on_connected:
                 try:
-                    self.on_connected(self.get_ports)
+                    self.on_connected(self.ports)
                 except Exception as e:
                     self._log(f"on_connected callback error: {type(e).__name__}: {e}")
 
@@ -725,16 +738,11 @@ class VRChatOSCManager:
     # ------------------------------------------------------------------
     # Avatar parameter cache (OGP-style)
     # ------------------------------------------------------------------
-
-    # Cache of every avatar-tree parameter VRChat has filled in. Keys are
-    # full OSC paths (e.g. "/avatar/eyeheight"), values are the latest
-    # VALUE we saw — either from a fetch or an incoming OSC packet.
-    # Populated by `_prefetch_avatar_tree` and `fetch_avatar_parameters`,
-    # consumed by `get_cached_parameter` / `query_height_via_http`.
-
-    def _ensure_param_cache(self) -> None:
-        if not hasattr(self, "_param_cache"):
-            self._param_cache: Dict[str, Any] = {}
+    #
+    # `self._param_cache` (created in __init__) maps full OSC paths to the
+    # latest VALUE seen — fed by `_prefetch_avatar_tree`,
+    # `fetch_avatar_parameters`, and every incoming OSC packet; consumed by
+    # `query_height_via_http` and the eyeheight resolver.
 
     def _prefetch_avatar_tree(self) -> None:
         """Background pre-fetch fired right after a successful handshake.
@@ -798,7 +806,7 @@ class VRChatOSCManager:
                 if stop.is_set() or self._shutdown.is_set():
                     return
                 # Cache hit? Done.
-                cached = self._param_cache.get(VRCHAT_OSC_PATH) if hasattr(self, "_param_cache") else None
+                cached = self._param_cache.get(VRCHAT_OSC_PATH)
                 if cached is not None:
                     self._log(
                         f"eyeheight resolver: value already in cache ({cached!r}), "
@@ -829,7 +837,6 @@ class VRChatOSCManager:
 
         Logs verbosely on every call so when this still fails we can see
         exactly what VRChat said. `attempt` is purely for the log."""
-        self._ensure_param_cache()
         if not self.http_port:
             self._log(f"eyeheight direct GET skipped (attempt {attempt}): no http_port yet")
             return None
@@ -896,7 +903,6 @@ class VRChatOSCManager:
         """Walk VRChat's `/avatar` subtree and populate the parameter
         cache with every node that carries a VALUE. Returns how many
         parameters were cached this pass."""
-        self._ensure_param_cache()
         if not self.http_port:
             return 0
         # `/avatar` is the parent of eyeheight, change, AND the
@@ -946,7 +952,6 @@ class VRChatOSCManager:
         """Return the cached VALUE for an OSC path, or None if we haven't
         seen one yet. Cache is fed by `fetch_avatar_parameters` and by
         every incoming OSC packet."""
-        self._ensure_param_cache()
         return self._param_cache.get(path)
 
     def query_height_via_http(self) -> Optional[float]:
@@ -958,7 +963,6 @@ class VRChatOSCManager:
           2. Walk `/avatar` and re-check the cache.
           3. Direct GET on `/avatar/eyeheight` — works even when VRChat
              doesn't list eyeheight under `/avatar` in its tree."""
-        self._ensure_param_cache()
         cached = self._param_cache.get(VRCHAT_OSC_PATH)
         if cached is None:
             self.fetch_avatar_parameters()
@@ -971,6 +975,22 @@ class VRChatOSCManager:
             return float(cached)
         except (TypeError, ValueError):
             return None
+
+    def force_height_refresh(self) -> None:
+        """Drop any cached eye height and re-arm the resolver loop so the
+        next query goes to VRChat instead of returning a stale value.
+
+        Public entry point for the UI's "↻ refresh" button — keeps the
+        controller from having to poke the manager's private cache /
+        resolver internals directly."""
+        self._param_cache.pop(VRCHAT_OSC_PATH, None)
+        try:
+            self._start_eyeheight_resolver()
+        except Exception as e:
+            self._log(
+                f"force_height_refresh: could not restart resolver: "
+                f"{type(e).__name__}: {e}"
+            )
 
     # ------------------------------------------------------------------
     # Health check
@@ -1025,8 +1045,13 @@ class VRChatOSCManager:
         self._health_thread.start()
 
     def _handle_disconnect(self, reason: str) -> None:
-        if not self.is_connected:
-            return
+        # Compare-and-set under the lock so concurrent callers (health-check
+        # thread + mDNS-removed handler) can't both pass the guard and fire
+        # on_disconnected twice.
+        with self._state_lock:
+            if not self.is_connected:
+                return
+            self.is_connected = False
         try:
             session_s = (time.time() - self._connected_since) if self._connected_since else 0.0
             last_pkt_age = (
@@ -1041,7 +1066,6 @@ class VRChatOSCManager:
             )
         except Exception:
             pass
-        self.is_connected = False
         self._connected_since = None
         self._silent_warning_logged = False
         self._silent_reprobe_attempted = False
@@ -1158,11 +1182,13 @@ class VRChatOSCManager:
                 self._first_packet_logged = True
                 self._log(f"first OSC packet received this session: address={address!r}")
 
-            # Feed every packet into the parameter cache so HTTP fallbacks
-            # stay fresh and a user-initiated refresh always reflects the
-            # last value VRChat broadcast.
-            self._ensure_param_cache()
-            if args:
+            # Cache the eye-height value (the only parameter anything ever
+            # reads back) so an HTTP fallback / manual refresh reflects the
+            # last value VRChat broadcast. We deliberately don't cache every
+            # other incoming address: VRChat streams the whole avatar
+            # parameter set, nothing consumes those keys, and storing them
+            # would just grow the dict with entries we never look at.
+            if args and address == VRCHAT_OSC_PATH:
                 self._param_cache[address] = args[0] if len(args) == 1 else list(args)
 
             if address == VRCHAT_OSC_PATH and args:
@@ -1215,7 +1241,7 @@ class VRChatOSCManager:
     # ------------------------------------------------------------------
 
     @property
-    def get_ports(self) -> Dict[str, Any]:
+    def ports(self) -> Dict[str, Any]:
         return {
             "target_ip": self.vrc_ip,
             "udp_send_port": self.vrc_osc_port,

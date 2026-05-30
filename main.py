@@ -39,7 +39,7 @@ from constants import (
 )
 from osc_manager import VRChatOSCManager
 from ui import HeightShiftWindow, apply_global_style
-from utils import round_height_cm
+from utils import is_valid_host, round_height_cm
 from version import __version__
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
@@ -223,7 +223,7 @@ class HeightShiftController(QObject):
     # ------------------------------------------------------------------
 
     def _on_osc_connected(self) -> None:
-        ports = self.osc_manager.get_ports
+        ports = self.osc_manager.ports
         self.window.set_local_port(ports.get("local_listen_port"))
         self.window.set_vrchat_port(ports.get("udp_send_port"))
         self.window.set_connection_status(
@@ -286,8 +286,9 @@ class HeightShiftController(QObject):
     # ------------------------------------------------------------------
 
     def _on_apply_ip(self, ip: str) -> None:
-        if not ip or "." not in ip:
-            logger.warning(f"Invalid IP rejected: {ip!r}")
+        ip = ip.strip()
+        if not is_valid_host(ip):
+            logger.warning(f"Invalid IP/host rejected: {ip!r}")
             return
         self.osc_ip = ip
         self.osc_manager.vrc_ip = ip
@@ -368,14 +369,10 @@ class HeightShiftController(QObject):
         self.window.set_height_display(None)
         self._initial_query_fired = False
         self._height_query_attempts = 0
-        # Drop the cached value so the query path hits the network.
-        if hasattr(self.osc_manager, "_param_cache"):
-            self.osc_manager._param_cache.pop("/avatar/eyeheight", None)
-        # Re-arm the manager's resolver loop too.
-        try:
-            self.osc_manager._start_eyeheight_resolver()
-        except Exception as e:
-            logger.warning(f"could not restart eyeheight resolver: {e}")
+        # Drop the cached value and re-arm the manager's resolver loop via
+        # its public API, so the next query hits the network instead of a
+        # stale cache.
+        self.osc_manager.force_height_refresh()
         QTimer.singleShot(0, self._query_height_async)
 
     def _on_quit(self) -> None:
@@ -386,14 +383,19 @@ class HeightShiftController(QObject):
     # ------------------------------------------------------------------
 
     def _set_height(self, height: int, *, send: bool) -> None:
+        # Single choke point for committing a height — clamp here so every
+        # path (slider commit, profiles, queries, adjust buttons) stays
+        # within the app's absolute limits regardless of how the user has
+        # configured the slider's visible range.
+        height = max(MIN_HEIGHT_CM, min(MAX_HEIGHT_CM, int(height)))
         with self._height_lock:
-            self.current_height = int(height)
+            self.current_height = height
             self.height_loaded = True
-            self.last_user_set_height = int(height)
-        self.window.set_height_display(int(height))
-        self.window.set_slider_value(int(height))
+            self.last_user_set_height = height
+        self.window.set_height_display(height)
+        self.window.set_slider_value(height)
         if send:
-            self.osc_manager.send_height(int(height))
+            self.osc_manager.send_height(height)
 
     def _refresh_profile_label(self, profile_num: int) -> None:
         key = f"profile{profile_num}"
