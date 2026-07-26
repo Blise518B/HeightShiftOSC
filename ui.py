@@ -284,6 +284,7 @@ class HeightShiftWindow(QMainWindow):
     profile_load = Signal(int)
     preserve_toggled = Signal(bool)
     hide_console_toggled = Signal(bool)
+    osc_router_518_toggled = Signal(bool)
     startup_mode_changed = Signal(str)    # "query" or "fixed_height"
     startup_height_changed = Signal(int)
     slider_range_changed = Signal(int, int)
@@ -311,6 +312,7 @@ class HeightShiftWindow(QMainWindow):
         self.slider_max_entry: Optional[QLineEdit] = None
         self.preserve_checkbox: Optional[QCheckBox] = None
         self.hide_console_checkbox: Optional[QCheckBox] = None
+        self.osc_router_checkbox: Optional[QCheckBox] = None
         self.startup_combo: Optional[QComboBox] = None
         self.fixed_height_entry: Optional[QLineEdit] = None
         self.profile_value_labels: Dict[int, QLabel] = {}
@@ -518,6 +520,10 @@ class HeightShiftWindow(QMainWindow):
         self.hide_console_checkbox.toggled.connect(self.hide_console_toggled.emit)
         outer.addWidget(self.hide_console_checkbox)
 
+        self.osc_router_checkbox = QCheckBox("OSC Router 518 fallback (keeps receiving when VRChat discovery dies)")
+        self.osc_router_checkbox.toggled.connect(self.osc_router_518_toggled.emit)
+        outer.addWidget(self.osc_router_checkbox)
+
         return card
 
     def _build_startup_card(self) -> QFrame:
@@ -711,6 +717,12 @@ class HeightShiftWindow(QMainWindow):
             self.hide_console_checkbox.blockSignals(True)
             self.hide_console_checkbox.setChecked(bool(checked))
             self.hide_console_checkbox.blockSignals(False)
+
+    def set_osc_router_518(self, checked: bool) -> None:
+        if self.osc_router_checkbox is not None:
+            self.osc_router_checkbox.blockSignals(True)
+            self.osc_router_checkbox.setChecked(bool(checked))
+            self.osc_router_checkbox.blockSignals(False)
 
     def set_startup_mode(self, mode: str) -> None:
         if self.startup_combo is None:

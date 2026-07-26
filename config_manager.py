@@ -10,6 +10,7 @@ from constants import (
     DEFAULT_WINDOW_GEOMETRY,
     DEFAULT_PRESERVE_HEIGHT_ON_AVATAR,
     DEFAULT_HIDE_CONSOLE,
+    DEFAULT_OSC_ROUTER_518,
     MIN_HEIGHT_CM,
     MAX_HEIGHT_CM
 )
@@ -68,6 +69,7 @@ class ConfigManager:
             "window_geometry": DEFAULT_WINDOW_GEOMETRY,
             "preserve_height_on_avatar_switch": DEFAULT_PRESERVE_HEIGHT_ON_AVATAR,
             "hide_console": DEFAULT_HIDE_CONSOLE,
+            "osc_router_518": DEFAULT_OSC_ROUTER_518,
         }
 
     def _atomic_write(self, config: Dict[str, Any]) -> None:

@@ -17,6 +17,9 @@ DEFAULT_STARTUP_HEIGHT_CM = 170
 DEFAULT_WINDOW_GEOMETRY = "560x780"
 DEFAULT_PRESERVE_HEIGHT_ON_AVATAR = True
 DEFAULT_HIDE_CONSOLE = True
+# Subscribe the OSC receive port at the local OSC Router 518 (fallback for
+# VRChat's dying mDNS discovery — see OscRouter518/docs/STANDARD.md)
+DEFAULT_OSC_ROUTER_518 = True
 
 # --- Height Configuration (in cm) ---
 MIN_HEIGHT_CM = 1

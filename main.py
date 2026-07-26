@@ -29,6 +29,7 @@ from constants import (
     CONFIG_FILE_NAME,
     DEFAULT_HEIGHT_CM,
     DEFAULT_HIDE_CONSOLE,
+    DEFAULT_OSC_ROUTER_518,
     DEFAULT_STARTUP_HEIGHT_CM,
     DEFAULT_WINDOW_HEIGHT,
     DEFAULT_WINDOW_WIDTH,
@@ -38,6 +39,7 @@ from constants import (
     MIN_HEIGHT_CM,
 )
 from osc_manager import VRChatOSCManager
+from router518 import Router518KeepAlive
 from ui import HeightShiftWindow, apply_global_style
 from utils import is_valid_host, round_height_cm
 from version import __version__
@@ -113,6 +115,7 @@ class HeightShiftController(QObject):
             "preserve_height_on_avatar_switch", True
         )
         self.hide_console: bool = cfg.get("hide_console", DEFAULT_HIDE_CONSOLE)
+        self.osc_router_518: bool = cfg.get("osc_router_518", DEFAULT_OSC_ROUTER_518)
         self.startup_mode: str = cfg.get("startup_mode", "query")
         if self.startup_mode not in ("query", "fixed_height"):
             self.startup_mode = "query"
@@ -138,6 +141,12 @@ class HeightShiftController(QObject):
         self.osc_manager.on_height_received = lambda m: self._osc_height_received.emit(float(m))
         self.osc_manager.on_avatar_change = lambda aid: self._osc_avatar_change.emit(str(aid))
         self.osc_manager.on_log = lambda line: self._osc_log.emit(line)
+
+        # 518 router fallback (see OscRouter518 docs/STANDARD.md). The OSC
+        # receive port binds lazily once VRChat is discovered, so the getter
+        # re-reads it each tick — 0 just parks the keep-alive until then.
+        self.router518 = Router518KeepAlive(
+            lambda: getattr(self.osc_manager, "local_listen_port", 0))
 
         # Hook UI signals
         self._wire_ui()
@@ -167,6 +176,7 @@ class HeightShiftController(QObject):
         w.profile_load.connect(self._on_profile_load)
         w.preserve_toggled.connect(self._on_preserve_toggled)
         w.hide_console_toggled.connect(self._on_hide_console_toggled)
+        w.osc_router_518_toggled.connect(self._on_osc_router_518_toggled)
         w.startup_mode_changed.connect(self._on_startup_mode_changed)
         w.startup_height_changed.connect(self._on_startup_height_changed)
         w.slider_range_changed.connect(self._on_slider_range_changed)
@@ -190,6 +200,7 @@ class HeightShiftController(QObject):
         w.set_height_display(None)  # "Not Loaded"
         w.set_preserve(self.preserve_height_on_avatar)
         w.set_hide_console(self.hide_console)
+        w.set_osc_router_518(self.osc_router_518)
         w.set_startup_mode(self.startup_mode)
         w.set_startup_height(self.startup_height)
         for i in range(1, 5):
@@ -204,6 +215,8 @@ class HeightShiftController(QObject):
         OSC connection callback (`_on_osc_connected`) — querying before
         the OSCQuery handshake completes is pointless."""
         self.osc_manager.start()
+        if self.osc_router_518:
+            self.router518.start()
 
         if self.startup_mode == "fixed_height":
             QTimer.singleShot(500, self._apply_fixed_height_startup)
@@ -213,6 +226,10 @@ class HeightShiftController(QObject):
 
     def stop(self) -> None:
         self._save_config()
+        try:
+            self.router518.stop()
+        except Exception as e:
+            logger.warning(f"Router 518 stop error: {e}")
         try:
             self.osc_manager.stop()
         except Exception as e:
@@ -348,6 +365,16 @@ class HeightShiftController(QObject):
         self.hide_console = bool(checked)
         self.config_manager.update_config({"hide_console": self.hide_console})
         self._toggle_console_visibility(self.hide_console)
+
+    def _on_osc_router_518_toggled(self, checked: bool) -> None:
+        self.osc_router_518 = bool(checked)
+        if self.osc_router_518:
+            self.router518.start()
+            logger.info("518 router fallback ON (subscribing at 127.0.0.1:51518)")
+        else:
+            self.router518.stop()
+            logger.info("518 router fallback OFF")
+        self.config_manager.update_config({"osc_router_518": self.osc_router_518})
 
     def _on_startup_mode_changed(self, mode: str) -> None:
         if mode not in ("query", "fixed_height"):
@@ -486,6 +513,7 @@ class HeightShiftController(QObject):
             "slider_max_value": int(self.slider_max_value),
             "preserve_height_on_avatar_switch": self.preserve_height_on_avatar,
             "hide_console": self.hide_console,
+            "osc_router_518": self.osc_router_518,
         }
         if self.osc_manager.vrc_osc_port:
             cfg["vrchat_discovered_osc_port"] = self.osc_manager.vrc_osc_port
