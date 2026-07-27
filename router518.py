@@ -1,4 +1,4 @@
-"""Tier 1 client of the 518 OSC Fallback Standard (OscRouter518/docs/STANDARD.md).
+"""Tier 1 client of the 518 OSC Fallback Standard (518Hub/docs/STANDARD.md).
 
 VRChat's mDNS listener dies after a few hours of gameplay; from then on it never
 discovers a freshly started or re-advertised app, so the app receives nothing
@@ -8,7 +8,7 @@ subscribes the app's existing OSC receive port there, so reception keeps working
 whether or not VRChat can still see us directly. Duplicate delivery (native +
 router) is harmless: avatar parameters are absolute values.
 
-Stdlib only. A missing router is a silent no-op — this is the fallback, it must
+Stdlib only. A missing router is a silent no-op â€” this is the fallback, it must
 never become a failure mode of its own.
 """
 from __future__ import annotations
