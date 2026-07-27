@@ -1,5 +1,5 @@
 """
-Constants module for HeightShiftOSC
+Constants module for HeightShift
 
 Holds application-wide constants so magic numbers and theming live in one
 place. Colours are aligned with the OscGoesPurrr palette so the two tools
@@ -17,8 +17,8 @@ DEFAULT_STARTUP_HEIGHT_CM = 170
 DEFAULT_WINDOW_GEOMETRY = "560x780"
 DEFAULT_PRESERVE_HEIGHT_ON_AVATAR = True
 DEFAULT_HIDE_CONSOLE = True
-# Subscribe the OSC receive port at the local OSC Router 518 (fallback for
-# VRChat's dying mDNS discovery — see OscRouter518/docs/STANDARD.md)
+# Subscribe the OSC receive port at the local 518 Hub (fallback for
+# VRChat's dying mDNS discovery — see 518Hub/docs/STANDARD.md)
 DEFAULT_OSC_ROUTER_518 = True
 
 # --- Height Configuration (in cm) ---
@@ -30,9 +30,14 @@ DEFAULT_HEIGHT_CM = 170
 VRCHAT_HTTP_TIMEOUT = 2.0
 
 # --- Application Identity ---
-APP_NAME = "HeightShiftOSC"
-CONFIG_DIR_NAME = "HeightShiftOSC"
+# Renamed from "HeightShiftOSC" in the family-wide naming pass. The config
+# filename keeps its old name inside the renamed folder: it's user data with
+# migration handling in main.get_app_config_dir, and churning the filename
+# too would double the migration surface for zero benefit.
+APP_NAME = "HeightShift"
+CONFIG_DIR_NAME = "HeightShift"
 CONFIG_FILE_NAME = "HeightShiftOSC_config.json"
+LEGACY_CONFIG_DIR_NAME = "HeightShiftOSC"
 
 # --- Window Configuration ---
 DEFAULT_WINDOW_WIDTH = 560

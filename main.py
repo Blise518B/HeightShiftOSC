@@ -27,6 +27,7 @@ from constants import (
     BURST_DURATION,
     BURST_INTERVAL,
     CONFIG_FILE_NAME,
+    LEGACY_CONFIG_DIR_NAME,
     DEFAULT_HEIGHT_CM,
     DEFAULT_HIDE_CONSOLE,
     DEFAULT_OSC_ROUTER_518,
@@ -56,6 +57,15 @@ def get_app_config_dir() -> str:
     if sys.platform == "win32":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
         config_dir = os.path.join(base, APP_NAME)
+        # The app was called HeightShiftOSC before the family-wide naming pass.
+        # Adopt the old folder wholesale so profiles and settings survive the
+        # rename on any machine this build lands on.
+        legacy_dir = os.path.join(base, LEGACY_CONFIG_DIR_NAME)
+        if not os.path.isdir(config_dir) and os.path.isdir(legacy_dir):
+            try:
+                os.rename(legacy_dir, config_dir)
+            except OSError:
+                pass    # locked or cross-volume: fall through, a fresh dir is made
     elif sys.platform == "darwin":
         config_dir = os.path.join(os.path.expanduser("~"), "Library", "Application Support", APP_NAME)
     else:

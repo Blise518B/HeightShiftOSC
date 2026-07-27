@@ -2,29 +2,56 @@
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo   HeightShiftOSC - PyInstaller Build Script
+echo   HeightShift - PyInstaller Build Script
 echo ========================================
 echo.
 
-REM Resolve the dynamic version (commit count on main + optional branch suffix)
-echo Resolving version from Git...
-for /f "usebackq tokens=*" %%i in (`python -c "from version import __version__; print(__version__)"`) do set BUILD_VERSION=%%i
-echo Building version: !BUILD_VERSION!
-echo.
-
-REM Check Python
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] Python not found. Please install Python and try again.
+REM ------------------------------------------------------------------
+REM Resolve a Python launcher (prefer the 'py' launcher over the
+REM Microsoft Store 'python' stub) and build / validate a venv. Every
+REM python / pip / PyInstaller call below runs through the venv so the
+REM build never touches system Python.
+REM ------------------------------------------------------------------
+set "PY="
+where py >nul 2>nul && set "PY=py -3"
+if not defined PY (
+    where python >nul 2>nul && set "PY=python"
+)
+if not defined PY (
+    echo [ERROR] Python not found. Install Python 3.10+ from https://www.python.org/
     pause
     exit /b 1
 )
 
+set "VENV_PY=venv\Scripts\python.exe"
+if exist "%VENV_PY%" (
+    "%VENV_PY%" -c "import sys" >nul 2>&1 || (
+        echo Existing virtual environment is broken; recreating...
+        rmdir /s /q "venv"
+    )
+)
+if not exist "%VENV_PY%" (
+    if exist "venv" rmdir /s /q "venv"
+    echo Creating virtual environment...
+    %PY% -m venv venv
+    if errorlevel 1 (
+        echo [ERROR] Could not create virtual environment.
+        pause
+        exit /b 1
+    )
+)
+
+REM Resolve the dynamic version (commit count on main + optional branch suffix)
+echo Resolving version from Git...
+for /f "usebackq tokens=*" %%i in (`"%VENV_PY%" -c "from version import __version__; print(__version__)"`) do set BUILD_VERSION=%%i
+echo Building version: !BUILD_VERSION!
+echo.
+
 echo [1/5] Checking for PyInstaller...
-pip show pyinstaller >nul 2>&1
+"%VENV_PY%" -m pip show pyinstaller >nul 2>&1
 if %errorlevel% neq 0 (
     echo PyInstaller not found. Installing...
-    pip install pyinstaller
+    "%VENV_PY%" -m pip install pyinstaller
     if %errorlevel% neq 0 (
         echo [ERROR] Failed to install PyInstaller.
         pause
@@ -36,7 +63,7 @@ if %errorlevel% neq 0 (
 echo.
 
 echo [2/5] Installing project dependencies...
-pip install -r requirements.txt
+"%VENV_PY%" -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo [WARNING] Some dependencies may have failed to install. Continuing anyway...
 )
@@ -53,7 +80,7 @@ REM not shell out to git at startup. Each subprocess.run from a --windowed
 REM build pops a brief console window per call, which is what we are avoiding.
 REM repr() handles any special characters in the branch suffix safely.
 echo [4/5] Baking version into _version_baked.py...
-python -c "from version import __version__ as v, _SHORT_HASH as h; open('_version_baked.py','w',encoding='utf-8').write('VERSION = ' + repr(v) + '\nSHORT_HASH = ' + repr(h) + '\n')"
+"%VENV_PY%" -c "from version import __version__ as v, _SHORT_HASH as h; open('_version_baked.py','w',encoding='utf-8').write('VERSION = ' + repr(v) + '\nSHORT_HASH = ' + repr(h) + '\n')"
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to bake version.
     if exist "_version_baked.py" del /q "_version_baked.py"
@@ -62,9 +89,9 @@ if %errorlevel% neq 0 (
 )
 
 echo Building standalone executable with PyInstaller...
-set EXE_NAME=HeightShiftOSC_!BUILD_VERSION!
+set EXE_NAME=HeightShift_!BUILD_VERSION!
 
-pyinstaller --noconfirm ^
+"%VENV_PY%" -m PyInstaller --noconfirm ^
     --onefile ^
     --windowed ^
     --icon "OSC_Scale.ico" ^
