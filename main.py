@@ -1,10 +1,10 @@
 """
-main.py â€” HeightShiftOSC controller / entry point.
+main.py — HeightShiftOSC controller / entry point.
 
 The controller owns the OSC manager, the config manager, and the Qt
 window. It listens to UI signals, drives the OSC manager from the user
 gestures, and pushes incoming OSC events back into the UI on the main
-thread via QTimer.singleShot â€” no manual `root.after` plumbing required.
+thread via QTimer.singleShot — no manual `root.after` plumbing required.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def get_resource_path(relative_path: str) -> str:
 class HeightShiftController(QObject):
     """Wires the UI, the OSC manager, and the config manager together.
 
-    Inherits QObject so we can declare cross-thread signals â€” OSC events
+    Inherits QObject so we can declare cross-thread signals — OSC events
     arrive on background threads; the signals marshal them onto the UI
     thread before touching widgets.
     """
@@ -133,7 +133,7 @@ class HeightShiftController(QObject):
 
         # Height query retry state. The HTTP endpoint for `/avatar/eyeheight`
         # frequently returns 404 / empty VALUE in the first ~2s after the
-        # OSCQuery handshake â€” VRChat still propagating the avatar's
+        # OSCQuery handshake — VRChat still propagating the avatar's
         # parameter set into its OSCQuery tree. We retry with backoff
         # instead of giving up after one shot.
         self._height_query_attempts = 0
@@ -144,7 +144,7 @@ class HeightShiftController(QObject):
         self.osc_ip: str = cfg.get("osc_ip", "127.0.0.1")
         self.profiles = self.config_manager.load_profiles()
 
-        # OSC manager â€” created here, started after the UI is shown.
+        # OSC manager — created here, started after the UI is shown.
         self.osc_manager = VRChatOSCManager(local_listen_port=0)
         self.osc_manager.on_connected = lambda ports: self._osc_connected.emit()
         self.osc_manager.on_disconnected = lambda: self._osc_disconnected.emit()
@@ -154,7 +154,7 @@ class HeightShiftController(QObject):
 
         # 518 router fallback (see 518Hub docs/STANDARD.md). The OSC
         # receive port binds lazily once VRChat is discovered, so the getter
-        # re-reads it each tick â€” 0 just parks the keep-alive until then.
+        # re-reads it each tick — 0 just parks the keep-alive until then.
         self.router518 = Router518KeepAlive(
             lambda: getattr(self.osc_manager, "local_listen_port", 0))
 
@@ -169,7 +169,7 @@ class HeightShiftController(QObject):
         if self.hide_console and sys.platform == "win32":
             QTimer.singleShot(50, lambda: self._toggle_console_visibility(True))
 
-        # Intercept close â€” controller saves config / stops OSC before exit
+        # Intercept close — controller saves config / stops OSC before exit
         self.window.set_close_handler(self.stop)
 
     # ------------------------------------------------------------------
@@ -194,7 +194,7 @@ class HeightShiftController(QObject):
         w.quit_clicked.connect(self._on_quit)
 
     def _wire_osc_bridge(self) -> None:
-        # AutoConnection â†’ QueuedConnection across threads, so the slots
+        # AutoConnection → QueuedConnection across threads, so the slots
         # below always run on the main thread.
         self._osc_height_received.connect(self._on_osc_height, Qt.QueuedConnection)
         self._osc_avatar_change.connect(self._on_osc_avatar_change, Qt.QueuedConnection)
@@ -222,7 +222,7 @@ class HeightShiftController(QObject):
 
     def start(self) -> None:
         """Start the OSC manager. Startup behaviour is driven by the
-        OSC connection callback (`_on_osc_connected`) â€” querying before
+        OSC connection callback (`_on_osc_connected`) — querying before
         the OSCQuery handshake completes is pointless."""
         self.osc_manager.start()
         if self.osc_router_518:
@@ -254,7 +254,7 @@ class HeightShiftController(QObject):
         self.window.set_local_port(ports.get("local_listen_port"))
         self.window.set_vrchat_port(ports.get("udp_send_port"))
         self.window.set_connection_status(
-            f"Connected to VRChat â€” "
+            f"Connected to VRChat — "
             f"send to {ports.get('udp_send_port')}, listen on {ports.get('local_listen_port')}",
             connected=True,
         )
@@ -275,7 +275,7 @@ class HeightShiftController(QObject):
     def _on_osc_disconnected(self) -> None:
         self.window.set_vrchat_port(None)
         self.window.set_connection_status(
-            "Disconnected â€” waiting for VRChat to reappearâ€¦", connected=False
+            "Disconnected — waiting for VRChat to reappear…", connected=False
         )
 
     def _on_osc_height(self, meters: float) -> None:
@@ -290,11 +290,11 @@ class HeightShiftController(QObject):
 
     def _on_osc_avatar_change(self, _avatar_id: str) -> None:
         if self.preserve_height_on_avatar:
-            logger.info("Avatar change â€” preserving height with rapid burst.")
+            logger.info("Avatar change — preserving height with rapid burst.")
             threading.Thread(target=self._rapid_burst_on_avatar_change,
                              daemon=True).start()
         else:
-            logger.info("Avatar change â€” querying new avatar's height.")
+            logger.info("Avatar change — querying new avatar's height.")
             # Reset the latches so the query path actually fires for the
             # new avatar (`_query_height_async` bails when `height_loaded`).
             with self._height_lock:
@@ -304,7 +304,7 @@ class HeightShiftController(QObject):
             QTimer.singleShot(800, self._query_height_async)
 
     def _on_osc_log(self, line: str) -> None:
-        # No log panel yet â€” logs already go to stdout + file. Reserved for
+        # No log panel yet — logs already go to stdout + file. Reserved for
         # future Diagnostics tab.
         pass
 
@@ -336,7 +336,7 @@ class HeightShiftController(QObject):
         self._set_height(new_height, send=True)
 
     def _on_slider_dragging(self, value: int) -> None:
-        # Live drag â€” update display only; don't spam OSC.
+        # Live drag — update display only; don't spam OSC.
         with self._height_lock:
             self.current_height = int(value)
         self.window.set_height_display(int(value))
@@ -398,7 +398,7 @@ class HeightShiftController(QObject):
         self.config_manager.update_config({"startup_height": value})
 
     def _on_refresh_height(self) -> None:
-        """User clicked the â†» button â€” force a fresh height query and
+        """User clicked the ↻ button — force a fresh height query and
         unconditionally re-arm the resolver loop. Useful for debugging
         when VRChat is being silent."""
         with self._height_lock:
@@ -420,7 +420,7 @@ class HeightShiftController(QObject):
     # ------------------------------------------------------------------
 
     def _set_height(self, height: int, *, send: bool) -> None:
-        # Single choke point for committing a height â€” clamp here so every
+        # Single choke point for committing a height — clamp here so every
         # path (slider commit, profiles, queries, adjust buttons) stays
         # within the app's absolute limits regardless of how the user has
         # configured the slider's visible range.
@@ -446,7 +446,7 @@ class HeightShiftController(QObject):
             return  # OSC stream already gave us a height; nothing to do.
 
         if not self.osc_manager.is_connected:
-            # Connection vanished mid-retry â€” bail; on_connected will
+            # Connection vanished mid-retry — bail; on_connected will
             # re-arm us when it comes back.
             return
 
@@ -505,7 +505,7 @@ class HeightShiftController(QObject):
         with self._height_lock:
             target = self.last_user_set_height
         sends = max(1, int(BURST_DURATION / BURST_INTERVAL))
-        logger.info(f"Rapid burst: {sends}Ã— height={target}cm @ {BURST_INTERVAL}s")
+        logger.info(f"Rapid burst: {sends}× height={target}cm @ {BURST_INTERVAL}s")
         for _ in range(sends):
             self.osc_manager.send_height(target)
             time.sleep(BURST_INTERVAL)

@@ -8,7 +8,7 @@ subscribes the app's existing OSC receive port there, so reception keeps working
 whether or not VRChat can still see us directly. Duplicate delivery (native +
 router) is harmless: avatar parameters are absolute values.
 
-Stdlib only. A missing router is a silent no-op â€” this is the fallback, it must
+Stdlib only. A missing router is a silent no-op — this is the fallback, it must
 never become a failure mode of its own.
 """
 from __future__ import annotations
