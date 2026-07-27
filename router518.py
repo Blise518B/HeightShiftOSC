@@ -27,8 +27,15 @@ def _pad(raw: bytes) -> bytes:
     return raw + b"\x00" * (-len(raw) % 4)
 
 
-def _control(address: str, port: int) -> bytes:
-    """/router518/* control message: OSC address + one int32 argument."""
+def _control(address: str, port: int, name: str = "") -> bytes:
+    """
+    /router518/* control message: OSC address, the port, and optionally this program's
+    name so the router's control panel can list who is connected by name rather than
+    guessing from the port's owning process (from source we're all just "python").
+    """
+    if name:
+        return (_pad(address.encode("ascii")) + _pad(b",is")
+                + struct.pack(">i", port) + _pad(name.encode("ascii", "replace")))
     return _pad(address.encode("ascii")) + _pad(b",i") + struct.pack(">i", port)
 
 
@@ -40,8 +47,10 @@ class Router518KeepAlive:
     server is picked up within one keep-alive interval.
     """
 
-    def __init__(self, port_getter: Callable[[], Optional[int]]) -> None:
+    def __init__(self, port_getter: Callable[[], Optional[int]],
+                 name: str = "HeightShiftOSC") -> None:
         self._port_getter = port_getter
+        self._name = name
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._sock: Optional[socket.socket] = None
@@ -87,7 +96,7 @@ class Router518KeepAlive:
                 port = self._port_getter() or 0
                 if 0 < port <= 65535:
                     self._last_port = port
-                    sock.sendto(_control("/router518/subscribe", port), ROUTER)
+                    sock.sendto(_control("/router518/subscribe", port, self._name), ROUTER)
             except OSError:
                 pass  # no router running: stay quiet and keep trying
             if self._stop.wait(KEEPALIVE_S):
