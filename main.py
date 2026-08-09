@@ -40,7 +40,7 @@ from constants import (
     MIN_HEIGHT_CM,
 )
 from osc_manager import VRChatOSCManager
-from router518 import Router518KeepAlive
+from router518 import ROUTER, Router518KeepAlive
 from ui import HeightShiftWindow, apply_global_style
 from utils import is_valid_host, round_height_cm
 from version import __version__
@@ -380,7 +380,7 @@ class HeightShiftController(QObject):
         self.osc_router_518 = bool(checked)
         if self.osc_router_518:
             self.router518.start()
-            logger.info("518 router fallback ON (subscribing at 127.0.0.1:51518)")
+            logger.info(f"518 router fallback ON (subscribing at {ROUTER[0]}:{ROUTER[1]})")
         else:
             self.router518.stop()
             logger.info("518 router fallback OFF")

@@ -18,7 +18,7 @@ import struct
 import threading
 from typing import Callable, Optional
 
-ROUTER = ("127.0.0.1", 51518)   # well-known constant from the standard
+ROUTER = ("127.0.0.1", 18518)   # well-known constant from the standard (was 51518)
 KEEPALIVE_S = 20.0              # spec: keep-alive every <= 30 s, TTL 90 s
 
 
