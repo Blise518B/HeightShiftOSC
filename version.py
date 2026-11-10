@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import subprocess
 
-BASE_VERSION = "1.0"
+BASE_VERSION = "1.1"
 RELEASE_BRANCH = "main"
 
 
@@ -96,10 +96,24 @@ def _resolve_from_git() -> tuple[str, str]:
     return f"{BASE_VERSION}.{commit_count}{suffix}", short_hash
 
 
+def _get_head_commit_count() -> int:
+    out = _run_git(["rev-list", "--count", "HEAD"])
+    return int(out) if out.isdigit() else 0
+
+
 try:
     from _version_baked import VERSION as __version__, SHORT_HASH as _SHORT_HASH
+    try:
+        from _version_baked import BUILD as __build__
+    except ImportError:   # baked by an older build.bat
+        __build__ = 0
 except ImportError:
     __version__, _SHORT_HASH = _resolve_from_git()
+    __build__ = _get_head_commit_count()
+
+# The 518 headline tag: `v<semver> · b<build>` (build = commits in HEAD, so it
+# ticks up with every commit and answers "am I running the latest build?").
+TITLE_TAG = f"v{BASE_VERSION} · b{__build__}"
 
 if _SHORT_HASH:
     __version_full__ = f"{__version__} ({_SHORT_HASH})"

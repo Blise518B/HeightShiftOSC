@@ -1,0 +1,866 @@
+"""
+controller.py — HeightShift's controller: decides what is sent to VRChat.
+
+Owns the OSC manager (osc/), the config and the window (ui/), and keeps the
+avatar's height as far as it is known. Two rules hold the whole app together:
+
+  * WRITE: every height that leaves the app goes through `_write()`, which
+    refuses anything `height_logic.check_write()` rejects (never clamps it
+    into something else) and only sends while VRChat is connected.
+  * READ: every height VRChat reports goes through `_on_reported()`. It is
+    never clamped, rounded or sent back — on startup the app only reads.
+    Relative steps (±1 cm …), profile saves and transitions all need that
+    read height first, so nothing is ever computed from a made-up default.
+
+The rules themselves (limits, which report to trust, the transition clock)
+live in height_logic.py, without Qt, and are tested there.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+from typing import Optional
+
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtWidgets import QApplication
+
+from config_manager import PROFILE_COUNT, ConfigManager
+from console_window import ConsoleWindow
+from constants import (
+    APP_NAME,
+    BURST_DURATION,
+    BURST_INTERVAL,
+    DEFAULT_HIDE_CONSOLE,
+    DEFAULT_OSC_ROUTER_518,
+    DEFAULT_PRESERVE_HEIGHT_ON_AVATAR,
+    DEFAULT_STARTUP_HEIGHT_CM,
+    ECHO_HOLD_S,
+    MAX_HEIGHT_CM,
+    MIN_HEIGHT_CM,
+    PRESERVE_MAX_RETRIES,
+    PRESERVE_TOLERANCE_CM,
+    TRANSITION_MAX_DURATION_S,
+    TRANSITION_MIN_DURATION_S,
+    TRANSITION_MIN_STEP_CM,
+    TRANSITION_TICK_MS,
+    UNLOCKED_MAX_HEIGHT_CM,
+)
+from height_logic import (
+    CURVE_LINEAR,
+    CURVES,
+    HeightHistory,
+    ReportGate,
+    Transition,
+    check_write,
+    describe_duration,
+    format_duration,
+    format_height,
+    is_number,
+    max_height_cm,
+    reported_cm,
+    same_height,
+)
+from osc.manager import VRChatOSCManager
+from osc.router518 import ROUTER, Router518KeepAlive
+from ui import theme
+from ui.window import HeightShiftWindow
+
+logger = logging.getLogger(__name__)
+
+# One clock for every timestamp that gets compared, here and in the OSC
+# manager: high resolution (unlike time.monotonic's ~16 ms on Windows) and
+# the same in every thread.
+now = time.perf_counter
+
+# Reading the height over HTTP: how often to try before waiting for VRChat to
+# push it (it does on every change), and the delay before the first try.
+QUERY_MAX_ATTEMPTS = 12          # backoff 0.5, 1, 2, 4, then 5 s: about 40 s in all
+QUERY_FIRST_DELAY_MS = 300
+QUERY_AFTER_AVATAR_CHANGE_MS = 2000   # VRChat needs a moment to load the new avatar
+
+
+class HeightShiftController(QObject):
+    """Wires the window, the OSC manager and the config together.
+
+    OSC events arrive on background threads; the signals below carry them
+    (with the time they were RECEIVED) onto the UI thread.
+    """
+
+    _sig_height = Signal(float, float)        # metres, receive time
+    _sig_avatar = Signal(str, float)          # avatar id, receive time
+    _sig_connected = Signal()
+    _sig_disconnected = Signal()
+    _sig_query_missed = Signal(int, int)      # read round, attempt that found nothing
+    activate_requested = Signal()                  # a second launch was attempted
+
+    def __init__(self, window: HeightShiftWindow, config: ConfigManager,
+                 console: ConsoleWindow):
+        super().__init__()
+        self.window = window
+        self.config = config
+        self.console = console
+
+        # --- settings (typed + validated; bad stored values fall back) ---
+        c = config
+        self.unlocked = c.get_bool("unlock_upper_limit", False)
+        top = max_height_cm(self.unlocked)
+        self.preserve = c.get_bool("preserve_height_on_avatar_switch",
+                                   DEFAULT_PRESERVE_HEIGHT_ON_AVATAR)
+        self.hide_console = c.get_bool("hide_console", DEFAULT_HIDE_CONSOLE)
+        self.router_on = c.get_bool("osc_router_518", DEFAULT_OSC_ROUTER_518)
+        self.startup_mode = c.get_choice("startup_mode", "query", ("query", "fixed_height"))
+        self.startup_height = min(top, c.get_number(
+            "startup_height", DEFAULT_STARTUP_HEIGHT_CM, MIN_HEIGHT_CM, UNLOCKED_MAX_HEIGHT_CM))
+        lo = c.get_number("slider_min_value", MIN_HEIGHT_CM, MIN_HEIGHT_CM, top)
+        hi = c.get_number("slider_max_value", MAX_HEIGHT_CM, MIN_HEIGHT_CM, top)
+        if lo >= hi:
+            lo, hi = float(MIN_HEIGHT_CM), float(MAX_HEIGHT_CM)
+        self.slider_lo, self.slider_hi = lo, hi
+        self.profiles = c.load_profiles()
+
+        # --- what VRChat's avatar is at, as far as we know ---------------
+        self.height_cm: Optional[float] = None     # None = not read yet
+        self.height_note = ""                      # where it came from
+        self.history = HeightHistory()
+        self.gate = ReportGate()
+        self._release_timer = self._single_shot(self._on_release)
+
+        self._fixed_applied = False                # fixed startup height: once per run
+        self._query_round = 0                      # bumped by _start_reading
+        self._query_attempts = 0
+
+        # --- preserve burst ----------------------------------------------
+        self._burst_timer = QTimer(self)
+        self._burst_timer.setInterval(int(BURST_INTERVAL * 1000))
+        self._burst_timer.timeout.connect(self._burst_tick)
+        self._burst_target: Optional[float] = None   # None + transition = follow it
+        self._burst_left = 0
+        self._burst_retries = 0
+        self._burst_follows_transition = False
+        self._verify_timer = self._single_shot(self._verify_preserve)
+
+        # --- slow transition ---------------------------------------------
+        self.transition: Optional[Transition] = None
+        self._tick_timer = QTimer(self)
+        self._tick_timer.setTimerType(Qt.PreciseTimer)
+        self._tick_timer.setInterval(TRANSITION_TICK_MS)
+        self._tick_timer.timeout.connect(self._transition_tick)
+        self._last_tick_sent: Optional[float] = None
+
+        # --- OSC ---------------------------------------------------------
+        # The manager stamps what it receives with OUR clock, at the moment it
+        # arrived (or, for an HTTP read, the moment it was asked for).
+        self.osc = VRChatOSCManager(log_dir=os.path.dirname(config.config_file) or None,
+                                    clock=now)
+        self.osc.on_connected = lambda _ports: self._sig_connected.emit()
+        self.osc.on_disconnected = lambda: self._sig_disconnected.emit()
+        self.osc.on_height_received = lambda m, t: self._sig_height.emit(float(m), float(t))
+        self.osc.on_avatar_change = lambda aid, t: self._sig_avatar.emit(str(aid), float(t))
+
+        # 518 router fallback (see 518Hub docs/STANDARD.md). The OSC receive
+        # port binds lazily once VRChat is discovered, so the getter re-reads
+        # it each tick — 0 just parks the keep-alive until then.
+        self.router518 = Router518KeepAlive(
+            lambda: getattr(self.osc, "local_listen_port", 0), name=APP_NAME)
+
+        q = Qt.QueuedConnection
+        self._sig_height.connect(self._on_reported, q)
+        self._sig_avatar.connect(self._on_avatar_change, q)
+        self._sig_connected.connect(self._on_connected, q)
+        self._sig_disconnected.connect(self._on_disconnected, q)
+        self._sig_query_missed.connect(self._on_query_missed, q)
+        self.activate_requested.connect(self.window.bring_to_front, q)
+
+        self._wire_ui()
+        self._populate()
+        if self.hide_console and console.available:
+            QTimer.singleShot(50, lambda: console.set_hidden(True))
+        self.window.set_close_handler(self.stop)
+
+    def _single_shot(self, slot) -> QTimer:
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(slot)
+        return timer
+
+    # ------------------------------------------------------------------
+    # Wiring
+    # ------------------------------------------------------------------
+
+    def _wire_ui(self) -> None:
+        w = self.window
+        w.adjust_clicked.connect(self._on_adjust)
+        w.slider_committed.connect(self._on_slider)
+        w.refresh_clicked.connect(self._on_refresh)
+        w.profile_save.connect(self._on_profile_save)
+        w.profile_load.connect(self._on_profile_load)
+        w.play_clicked.connect(self._on_play)
+        w.pause_clicked.connect(self._on_pause)
+        w.stop_clicked.connect(lambda: self._stop_transition(stopped_by="Stop"))
+        w.transition_inputs_changed.connect(self._on_transition_inputs)
+        w.preserve_toggled.connect(self._on_preserve)
+        w.unlock_toggled.connect(self._on_unlock)
+        w.router_toggled.connect(self._on_router)
+        w.hide_console_toggled.connect(self._on_hide_console)
+        w.startup_mode_changed.connect(self._on_startup_mode)
+        w.startup_height_changed.connect(self._on_startup_height)
+        w.slider_range_changed.connect(self._on_slider_range)
+        w.ui_mode_changed.connect(self._on_ui_mode)
+        w.text_scale_changed.connect(self._on_text_scale)
+        w.settings_toggled.connect(lambda on: self.config.update_config({"settings_open": on}))
+        w.geometry_changed.connect(self._save_geometry)
+
+    def _populate(self) -> None:
+        w, c = self.window, self.config
+        top = max_height_cm(self.unlocked)
+        w.set_target_limit(top)
+        w.set_slider_range(self.slider_lo, self.slider_hi, top)
+        w.set_preserve(self.preserve)
+        w.set_unlock(self.unlocked)
+        w.set_router(self.router_on)
+        w.set_hide_console(self.hide_console, self.console.available)
+        w.set_startup(self.startup_mode, self.startup_height)
+        w.set_ui_mode(theme.mode())
+        w.set_text_scale(theme.text_scale())
+        w.set_settings_open(c.get_bool("settings_open", True))
+        w.set_transition_inputs(
+            min(top, c.get_number("transition_target_cm", 200, MIN_HEIGHT_CM, UNLOCKED_MAX_HEIGHT_CM)),
+            int(c.get_number("transition_duration", 10, 1, 999)),
+            c.get_choice("transition_unit", "min", ("s", "min", "h")),
+            c.get_choice("transition_curve", CURVE_LINEAR, CURVES),
+        )
+        for i in range(1, PROFILE_COUNT + 1):
+            w.set_profile(i, self.profiles.get(f"profile{i}"))
+        w.set_connection(False)
+        w.set_ports(None, None)
+        self._show_height()
+        self._refresh()
+        w.status("Looking for VRChat…")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        self.osc.start()
+        if self.router_on:
+            self.router518.start()
+
+    def stop(self) -> None:
+        self._tick_timer.stop()
+        self._burst_timer.stop()
+        self._save_geometry()
+        try:
+            self.router518.stop()
+        except Exception as e:
+            logger.warning(f"Router 518 stop error: {e}")
+        try:
+            self.osc.stop()
+        except Exception as e:
+            logger.warning(f"OSC manager stop error: {e}")
+
+    # ------------------------------------------------------------------
+    # THE write path
+    # ------------------------------------------------------------------
+
+    @property
+    def connected(self) -> bool:
+        return bool(self.osc.is_connected)
+
+    def _write(self, cm: float, why: str, note: str, *, quiet: bool = False) -> bool:
+        """The only place a height is sent. True if it actually went out."""
+        if not self.connected:
+            if not quiet:
+                self._status(f"Not sent ({why}): VRChat isn't connected.")
+            return False
+        err = check_write(cm, self.unlocked)
+        if err:
+            shown = format_height(cm) if is_number(cm) else repr(cm)
+            self._status(f"Not sent ({why}): {shown} is {err}.", warn=True)
+            return False
+        if not self.osc.send_height(cm):
+            if not quiet:
+                self._status(f"Sending {format_height(cm)} failed — see osc_diagnostics.log.",
+                             warn=True)
+            return False
+        t = now()
+        self.gate.on_send(t)
+        self.history.record(t, float(cm), "app")
+        self._release_timer.start(int(ECHO_HOLD_S * 1000) + 20)
+        self.height_cm = float(cm)
+        self.height_note = note
+        self._show_height()
+        return True
+
+    def _take_over(self, what: str) -> None:
+        """A manual change ends whatever else was driving the height, so the
+        two can never fight (the old burst kept resending the old height
+        over a click made during it)."""
+        if self.transition is not None:
+            self._stop_transition(stopped_by=what)
+        self._cancel_burst()
+
+    def _set_absolute(self, cm: float, why: str) -> None:
+        err = check_write(cm, self.unlocked)
+        if err:
+            self._status(f"Not sent ({why}): {format_height(cm)} is {err}.", warn=True)
+            return
+        self._take_over(why)
+        if self._write(cm, why, "set by HeightShift"):
+            self._status(f"Set {format_height(cm)} ({why}).")
+        self._refresh()
+
+    # ------------------------------------------------------------------
+    # THE read path
+    # ------------------------------------------------------------------
+
+    def _on_reported(self, meters: float, seen_at: float) -> None:
+        """A height from VRChat: an OSC packet (seen when it arrived) or an
+        HTTP read (seen when it was asked for)."""
+        cm = reported_cm(meters)
+        if cm is None:
+            logger.warning(f"Ignored an unusable height from VRChat: {meters!r}")
+            return
+        self.history.record(seen_at, cm, "vrchat")
+        adopt = self.gate.offer(seen_at, now(), cm)
+        if adopt is not None:
+            self._adopt(adopt)
+        elif self.gate.holding and not self._release_timer.isActive():
+            self._release_timer.start(max(0, int((self.gate.hold_until - now()) * 1000)) + 20)
+
+    def _on_release(self) -> None:
+        t = now()
+        if t < self.gate.hold_until:          # a later send extended the hold
+            self._release_timer.start(int((self.gate.hold_until - t) * 1000) + 20)
+            return
+        value = self.gate.release(t)
+        if value is not None:
+            self._adopt(value)
+
+    def _adopt(self, cm: float) -> None:
+        first = self.height_cm is None
+        changed = not same_height(self.height_cm, cm)
+        self.height_cm = cm
+        self.height_note = "read from VRChat"
+        self._show_height()
+        if first:
+            self._status(f"Read {format_height(cm)} from VRChat.")
+        elif changed:
+            self._status(f"VRChat reports {format_height(cm)}.")
+        self._refresh()
+
+    # ------------------------------------------------------------------
+    # OSC events
+    # ------------------------------------------------------------------
+
+    def _on_connected(self) -> None:
+        ports = self.osc.ports
+        self.window.set_connection(True)
+        self.window.set_ports(ports.get("local_listen_port"), ports.get("udp_send_port"))
+        self._last_tick_sent = None      # a running transition resends at once
+        if self.startup_mode == "fixed_height" and not self._fixed_applied:
+            # Once per app run, the first time VRChat connects — no matter how
+            # late (the old 10 s timeout dropped it if VRChat started later).
+            self._fixed_applied = True
+            if self._write(self.startup_height, "fixed startup height", "fixed startup height"):
+                self._status(f"Connected — set the fixed startup height "
+                             f"{format_height(self.startup_height)}.")
+        else:
+            self._status("Connected to VRChat.")
+            if self.height_cm is None:
+                self._start_reading(QUERY_FIRST_DELAY_MS)
+        self._show_height()
+        self._refresh()
+
+    def _on_disconnected(self) -> None:
+        self.window.set_connection(False)
+        self.window.set_ports(None, None)
+        self._cancel_burst()
+        # VRChat may have restarted with the avatar at its default height: what
+        # we knew is stale, and a step from it would write a wrong value.
+        self.height_cm = None
+        self.history.clear()
+        self.gate.reset()
+        self._release_timer.stop()
+        note = ""
+        if self.transition is not None and self.transition.playing:
+            note = " The transition keeps its schedule and resumes sending then."
+        self._status("VRChat disconnected — waiting for it to come back." + note)
+        self._show_height()
+        self._refresh()
+
+    def _on_avatar_change(self, avatar_id: str, changed_at: float) -> None:
+        logger.info(f"Avatar change: {avatar_id!r}")
+        # Whatever VRChat said before this moment describes the OLD avatar —
+        # including an HTTP read that is still on its way.
+        self.gate.on_avatar_change(changed_at)
+        t = self.transition
+        if t is not None and t.playing:
+            # The transition owns the height: resend its value now, and keep
+            # resending it through the swap if preserving is on.
+            self._last_tick_sent = None
+            if self.preserve:
+                self._start_burst(None, retries=0)
+            self._status("Avatar changed — the transition carries on.")
+            return
+        if self.preserve:
+            target = self.history.preserve_target(changed_at)
+            if target is not None:
+                self._start_burst(target, retries=PRESERVE_MAX_RETRIES)
+                self._status(f"Avatar changed — keeping {format_height(target)}.")
+                return
+            logger.info("Avatar changed before any height was known: nothing to keep.")
+        self._cancel_burst()
+        self.height_cm = None
+        self._show_height()
+        self._refresh()
+        self._status("Avatar changed — reading the new avatar's height.")
+        self._start_reading(QUERY_AFTER_AVATAR_CHANGE_MS)
+
+    # ------------------------------------------------------------------
+    # Reading the height over HTTP (OSCQuery)
+    # ------------------------------------------------------------------
+
+    def _start_reading(self, delay_ms: int) -> None:
+        """Start a fresh round of HTTP reads; an older round still waiting
+        for its next try stops (quick avatar swaps used to stack them)."""
+        self._query_round += 1
+        self._query_attempts = 0
+        round_ = self._query_round
+        QTimer.singleShot(delay_ms, lambda: self._query_height(round_))
+
+    def _query_height(self, round_: int) -> None:
+        if round_ != self._query_round or self.height_cm is not None or not self.connected:
+            return
+        self._query_attempts += 1
+        attempt = self._query_attempts
+
+        def worker() -> None:
+            result = self.osc.read_height()     # (metres, asked_at) or None
+            # Back to the UI thread through signals: a QTimer started on this
+            # plain Python thread would never fire (no event loop here). The
+            # old code did exactly that, so its retries never ran.
+            if result is not None:
+                self._sig_height.emit(float(result[0]), float(result[1]))
+            else:
+                self._sig_query_missed.emit(round_, attempt)
+
+        threading.Thread(target=worker, daemon=True, name="HeightQuery").start()
+
+    def _on_query_missed(self, round_: int, attempt: int) -> None:
+        if round_ != self._query_round or self.height_cm is not None or not self.connected:
+            return
+        if attempt >= QUERY_MAX_ATTEMPTS:
+            logger.info(f"Gave up reading the height after {attempt} tries; "
+                        "VRChat pushes it over OSC when it changes.")
+            self._status("VRChat hasn't told us the height yet — it arrives with the "
+                         "next change, or press ↻.")
+            return
+        delay_ms = min(5000, 500 * (2 ** min(attempt - 1, 4)))
+        QTimer.singleShot(delay_ms, lambda: self._query_height(round_))
+
+    # ------------------------------------------------------------------
+    # Preserve height across avatar changes
+    # ------------------------------------------------------------------
+
+    def _start_burst(self, target: Optional[float], retries: int) -> None:
+        self._burst_target = target
+        self._burst_follows_transition = target is None
+        self._burst_left = max(1, int(round(BURST_DURATION / BURST_INTERVAL)))
+        self._burst_retries = retries
+        self._verify_timer.stop()
+        self._burst_timer.start()
+        self._burst_tick()
+        self._refresh_activity()
+
+    def _burst_value(self) -> Optional[float]:
+        if not self._burst_follows_transition:
+            return self._burst_target
+        t = self.transition
+        if t is not None and t.playing:
+            return t.end_cm if t.finished(now()) else t.value(now())
+        return None
+
+    def _burst_tick(self) -> None:
+        value = self._burst_value()
+        if value is None or not self.connected:
+            self._cancel_burst()
+            return
+        note = "transition" if self._burst_follows_transition else "kept after avatar change"
+        if not self._write(value, "keeping height after avatar change", note, quiet=True):
+            self._cancel_burst()
+            return
+        if self._burst_follows_transition:
+            self._last_tick_sent = value
+        self._burst_left -= 1
+        if self._burst_left <= 0:
+            self._burst_timer.stop()
+            if self._burst_follows_transition:
+                self._finish_burst()
+            else:
+                # Check once VRChat's echo has settled whether it stuck.
+                self._verify_timer.start(int((ECHO_HOLD_S + 0.3) * 1000))
+            self._refresh_activity()
+
+    def _verify_preserve(self) -> None:
+        target = self._burst_target
+        if target is None or not self.connected:
+            self._finish_burst()
+            return
+        if (self.height_cm is not None
+                and abs(self.height_cm - target) > PRESERVE_TOLERANCE_CM):
+            if self._burst_retries > 0:
+                logger.info(f"VRChat reports {format_height(self.height_cm)} after the burst "
+                            f"— one more burst for {format_height(target)}.")
+                self._start_burst(target, self._burst_retries - 1)
+                return
+            self._status(f"VRChat kept {format_height(self.height_cm)} instead of "
+                         f"{format_height(target)} — this world may not allow scaling.",
+                         warn=True)
+        self._finish_burst()
+
+    def _finish_burst(self) -> None:
+        self._burst_target = None
+        self._burst_follows_transition = False
+        self._burst_left = 0
+        self._refresh_activity()
+
+    def _cancel_burst(self) -> None:
+        self._burst_timer.stop()
+        self._verify_timer.stop()
+        self._finish_burst()
+
+    # ------------------------------------------------------------------
+    # Slow transition
+    # ------------------------------------------------------------------
+
+    def _inputs(self):
+        target, value, unit, curve = self.window.transition_inputs()
+        seconds = self.window.duration_seconds(value, unit)
+        seconds = min(TRANSITION_MAX_DURATION_S, max(TRANSITION_MIN_DURATION_S, seconds))
+        return target, seconds, curve, value, unit
+
+    def _play_blocker(self) -> str:
+        """Why Play can't start right now ('' = it can)."""
+        if not self.connected:
+            return "Waiting for VRChat."
+        if self.height_cm is None:
+            return "Waiting for VRChat's current height — the transition starts from it."
+        target, _secs, _curve, _v, _u = self._inputs()
+        err = check_write(target, self.unlocked)
+        if err:
+            return f"The target {format_height(target)} is {err}."
+        err = check_write(self.height_cm, self.unlocked)
+        if err:
+            return f"The current height {format_height(self.height_cm)} is {err}."
+        if same_height(target, self.height_cm):
+            return "Already at the target height."
+        return ""
+
+    def _on_play(self) -> None:
+        t = self.transition
+        if t is not None and not t.playing:          # resume
+            t.play(now())
+            self._last_tick_sent = None
+            self._tick_timer.start()
+            self._status(f"Transition resumed — {format_duration(t.remaining(now()))} left.")
+            self._transition_tick()
+            return
+        blocker = self._play_blocker()
+        if blocker:
+            self._status(f"Can't start: {blocker}", warn=True)
+            self._refresh()
+            return
+        target, seconds, curve, _v, _u = self._inputs()
+        self._cancel_burst()
+        self.transition = Transition(self.height_cm, target, seconds, curve)
+        self.transition.play(now())
+        self._last_tick_sent = self.height_cm       # the start height is already there
+        self._tick_timer.start()
+        self._status(f"Transition: {format_height(self.height_cm)} → "
+                     f"{format_height(target)} over {describe_duration(seconds)}.")
+        self._refresh()
+
+    def _on_pause(self) -> None:
+        t = self.transition
+        if t is None or not t.playing:
+            return
+        t.pause(now())
+        self._tick_timer.stop()
+        self._status(f"Transition paused at {format_height(self.height_cm or t.value(now()))}.")
+        self._refresh()
+
+    def _stop_transition(self, stopped_by: str = "") -> None:
+        t = self.transition
+        if t is None:
+            return
+        self.transition = None
+        self._tick_timer.stop()
+        if self._burst_follows_transition:
+            self._cancel_burst()
+        where = format_height(self.height_cm) if self.height_cm is not None else "its last height"
+        reason = f" ({stopped_by})" if stopped_by and stopped_by != "Stop" else ""
+        self._status(f"Transition stopped at {where}{reason}.")
+        self._refresh()
+
+    def _transition_tick(self) -> None:
+        t = self.transition
+        if t is None or not t.playing:
+            self._tick_timer.stop()
+            return
+        n = now()
+        finished = t.finished(n)
+        value = t.end_cm if finished else t.value(n)
+        err = check_write(value, self.unlocked)
+        if err:
+            self.transition = None
+            self._tick_timer.stop()
+            self._status(f"Transition stopped: {format_height(value)} is {err}.", warn=True)
+            self._refresh()
+            return
+        sent_end = False
+        if self.connected and self._burst_left == 0:
+            due = (finished or self._last_tick_sent is None
+                   or abs(value - self._last_tick_sent) >= TRANSITION_MIN_STEP_CM)
+            if due and self._write(value, "transition", "transition", quiet=True):
+                self._last_tick_sent = value
+                sent_end = finished
+        elif self._burst_left > 0 and finished:
+            sent_end = same_height(self._last_tick_sent, t.end_cm)
+        if finished and sent_end:
+            self.transition = None
+            self._tick_timer.stop()
+            self._status(f"Transition done — reached {format_height(t.end_cm)}.")
+            self._refresh()
+            return
+        # Not connected at the end: keep ticking, the end height goes out as
+        # soon as VRChat is back.
+        self._refresh_transition()
+
+    def _on_transition_inputs(self) -> None:
+        target, _secs, curve, value, unit = self._inputs()
+        self.config.update_config({
+            "transition_target_cm": target,
+            "transition_duration": value,
+            "transition_unit": unit,
+            "transition_curve": curve,
+        })
+        self._refresh()
+
+    # ------------------------------------------------------------------
+    # UI actions
+    # ------------------------------------------------------------------
+
+    def _on_adjust(self, delta: float) -> None:
+        if self.height_cm is None:
+            self._status("Steps start from the current height — waiting for VRChat to report it.")
+            return
+        self._set_absolute(self.height_cm + delta, f"{delta:+g} cm")
+
+    def _on_slider(self, cm: float) -> None:
+        self._set_absolute(cm, "slider")
+
+    def _on_refresh(self) -> None:
+        if not self.connected:
+            return
+        self.height_cm = None
+        self._show_height()
+        self._refresh()
+        self._start_reading(0)
+
+    def _on_profile_save(self, num: int) -> None:
+        if self.height_cm is None:
+            self._status("Nothing to save yet — waiting for VRChat's current height.")
+            return
+        value = round(self.height_cm, 1)
+        self.profiles[f"profile{num}"] = value
+        self.config.update_config({"profiles": dict(self.profiles)})
+        self.window.set_profile(num, value)
+        self._status(f"Saved {format_height(value)} as profile {num}.")
+        self._refresh()
+
+    def _on_profile_load(self, num: int) -> None:
+        value = self.profiles.get(f"profile{num}")
+        if value is None:
+            return
+        self._set_absolute(value, f"profile {num}")
+
+    def _on_preserve(self, on: bool) -> None:
+        self.preserve = bool(on)
+        if not on:
+            self._cancel_burst()
+        self.config.update_config({"preserve_height_on_avatar_switch": self.preserve})
+
+    def _on_unlock(self, on: bool) -> None:
+        self.unlocked = bool(on)
+        top = max_height_cm(self.unlocked)
+        # Locking clamps the INPUT fields (target, fixed height, slider range)
+        # to 100 m. Nothing is sent to VRChat because of it.
+        self.window.set_target_limit(top)
+        self.startup_height = min(self.startup_height, top)
+        self.window.set_startup(self.startup_mode, self.startup_height)
+        if self.slider_hi > top:
+            self.slider_hi = top
+            self.slider_lo = min(self.slider_lo, top - 1)
+        self.window.set_slider_range(self.slider_lo, self.slider_hi, top)
+        if self.height_cm is not None:
+            self.window.set_slider(self.height_cm)
+        target, _s, curve, value, unit = self._inputs()
+        self.config.update_config({
+            "unlock_upper_limit": self.unlocked,
+            "startup_height": self.startup_height,
+            "slider_min_value": self.slider_lo,
+            "slider_max_value": self.slider_hi,
+            "transition_target_cm": target,
+        })
+        if self.unlocked:
+            self._status(f"Upper limit unlocked — heights up to {format_height(top)} can be sent.")
+        else:
+            self._status(f"Upper limit locked — nothing above {format_height(top)} is sent.")
+        self._refresh()
+
+    def _on_router(self, on: bool) -> None:
+        self.router_on = bool(on)
+        if self.router_on:
+            self.router518.start()
+            logger.info(f"518 router fallback ON (subscribing at {ROUTER[0]}:{ROUTER[1]})")
+        else:
+            self.router518.stop()
+            logger.info("518 router fallback OFF")
+        self.config.update_config({"osc_router_518": self.router_on})
+
+    def _on_hide_console(self, on: bool) -> None:
+        self.hide_console = bool(on)
+        self.console.set_hidden(self.hide_console)
+        self.config.update_config({"hide_console": self.hide_console})
+
+    def _on_startup_mode(self, mode: str) -> None:
+        if mode in ("query", "fixed_height"):
+            self.startup_mode = mode
+            self.config.update_config({"startup_mode": mode})
+
+    def _on_startup_height(self, value: float) -> None:
+        if check_write(value, self.unlocked) is None:
+            self.startup_height = float(value)
+            self.config.update_config({"startup_height": self.startup_height})
+
+    def _on_slider_range(self, lo: float, hi: float) -> None:
+        top = max_height_cm(self.unlocked)
+        lo, hi = max(float(MIN_HEIGHT_CM), lo), min(top, hi)
+        if lo >= hi:
+            return
+        self.slider_lo, self.slider_hi = lo, hi
+        self.window.set_slider_range(lo, hi, top)
+        if self.height_cm is not None:
+            self.window.set_slider(self.height_cm)
+        self.config.update_config({"slider_min_value": lo, "slider_max_value": hi})
+
+    def _on_ui_mode(self, mode: str) -> None:
+        theme.apply_theme(QApplication.instance(), mode_name=mode)
+        self.window.set_ui_mode(theme.mode())
+        self.config.update_config({"ui_mode": theme.mode()})
+
+    def _on_text_scale(self, scale: float) -> None:
+        theme.apply_theme(QApplication.instance(), scale=scale)
+        self.window.set_text_scale(theme.text_scale())
+        self.config.update_config({"text_scale": theme.text_scale()})
+
+    def _save_geometry(self) -> None:
+        try:
+            self.config.update_config({"window_geometry_qt": self.window.geometry_b64()})
+        except Exception as e:
+            logger.warning(f"Could not save window geometry: {e}")
+
+    # ------------------------------------------------------------------
+    # Pushing state into the view
+    # ------------------------------------------------------------------
+
+    def _status(self, text: str, warn: bool = False) -> None:
+        (logger.warning if warn else logger.info)(text)
+        self.window.status(text)
+
+    def _show_height(self) -> None:
+        if self.height_cm is None:
+            sub = ("reading the height from VRChat…" if self.connected
+                   else "waiting for VRChat")
+        else:
+            sub = self.height_note
+        self.window.set_height(self.height_cm, sub)
+
+    def _refresh(self) -> None:
+        known = self.height_cm is not None
+        conn = self.connected
+        if not conn:
+            reason = "Waiting for VRChat."
+        elif not known:
+            reason = "Waiting for VRChat's current height — steps start from it."
+        else:
+            reason = ""
+        self.window.set_controls_enabled(relative=conn and known, absolute=conn,
+                                         refresh=conn, reason=reason)
+        load_ok = {}
+        for i in range(1, PROFILE_COUNT + 1):
+            value = self.profiles.get(f"profile{i}")
+            if value is None:
+                load_ok[i] = (False, "Empty — press Save current to store a height here.")
+            elif not conn:
+                load_ok[i] = (False, "Waiting for VRChat.")
+            else:
+                err = check_write(value, self.unlocked)
+                load_ok[i] = ((err is None),
+                              f"{format_height(value)} is {err}." if err
+                              else f"Set {format_height(value)}")
+        self.window.set_profile_buttons(
+            known, load_ok, "Nothing to save yet — waiting for VRChat's current height.")
+        self._refresh_transition()
+        self._refresh_activity()
+
+    def _refresh_transition(self) -> None:
+        w = self.window
+        t = self.transition
+        n = now()
+        if t is not None:
+            remaining = t.remaining(n)
+            if t.playing:
+                eta = time.time() + remaining
+                fmt = "%a %H:%M" if remaining > 20 * 3600 else "%H:%M"
+                text = (f"Reaches {format_height(t.end_cm)} at "
+                        f"{time.strftime(fmt, time.localtime(eta))} · "
+                        f"{format_duration(remaining)} left")
+                state = "run"
+                if not self.connected:
+                    text += " · waiting for VRChat"
+                    state = "warn"
+                w.set_transition_state("playing", True, text, state)
+            else:
+                w.set_transition_state(
+                    "paused", True,
+                    f"Paused at {format_height(t.value(n))} · "
+                    f"{format_duration(remaining)} left", "warn")
+            w.set_graph(t.start_cm, t.end_cm, describe_duration(t.duration_s), t.curve,
+                        t.progress(n))
+            return
+        target, seconds, curve, _v, _u = self._inputs()
+        blocker = self._play_blocker()
+        if blocker:
+            text, state = blocker, ("warn" if "is above" in blocker or "is below" in blocker else "")
+        else:
+            eta = time.localtime(time.time() + seconds)
+            text, state = (f"Would reach {format_height(target)} at "
+                           f"{time.strftime('%H:%M', eta)}."), ""
+        w.set_transition_state("idle", not blocker, text, state)
+        w.set_graph(self.height_cm, target, describe_duration(seconds), curve, None)
+
+    def _refresh_activity(self) -> None:
+        t = self.transition
+        if self._burst_left > 0 or self._verify_timer.isActive():
+            self.window.set_activity("keeping height", "run")
+        elif t is not None and t.playing:
+            self.window.set_activity("transition running", "run")
+        elif t is not None:
+            self.window.set_activity("transition paused", "warn")
+        else:
+            self.window.set_activity("idle", "")

@@ -48,7 +48,7 @@ class Router518KeepAlive:
     """
 
     def __init__(self, port_getter: Callable[[], Optional[int]],
-                 name: str = "HeightShiftOSC") -> None:
+                 name: str = "HeightShift") -> None:
         self._port_getter = port_getter
         self._name = name
         self._stop = threading.Event()

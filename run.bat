@@ -1,5 +1,5 @@
 @echo off
-title HeightShiftOSC
+title HeightShift
 setlocal
 
 :: Change to script directory so relative paths work no matter where the
@@ -20,7 +20,7 @@ if not defined PY (
     exit /b 1
 )
 
-echo Starting HeightShiftOSC...
+echo Starting HeightShift...
 echo.
 
 :: Validate the venv, (re)creating it if missing or broken.
@@ -49,7 +49,14 @@ if errorlevel 1 (
     echo.
 )
 
-echo Launching HeightShiftOSC...
+echo Launching HeightShift...
 "%VENV_PY%" main.py
-
-pause
+:: Pause only when something went wrong. The app hides this console when
+:: "Hide the console window" is on and always shows it again on exit, so an
+:: error stays readable; a normal exit just closes the window (the old
+:: unconditional pause left an invisible cmd.exe waiting after every run).
+if errorlevel 1 (
+    echo.
+    echo HeightShift exited with an error - see above.
+    pause
+)

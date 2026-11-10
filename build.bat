@@ -80,7 +80,7 @@ REM not shell out to git at startup. Each subprocess.run from a --windowed
 REM build pops a brief console window per call, which is what we are avoiding.
 REM repr() handles any special characters in the branch suffix safely.
 echo [4/5] Baking version into _version_baked.py...
-"%VENV_PY%" -c "from version import __version__ as v, _SHORT_HASH as h; open('_version_baked.py','w',encoding='utf-8').write('VERSION = ' + repr(v) + '\nSHORT_HASH = ' + repr(h) + '\n')"
+"%VENV_PY%" -c "from version import __version__ as v, _SHORT_HASH as h, __build__ as b; open('_version_baked.py','w',encoding='utf-8').write('VERSION = ' + repr(v) + '\nSHORT_HASH = ' + repr(h) + '\nBUILD = ' + repr(b) + '\n')"
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to bake version.
     if exist "_version_baked.py" del /q "_version_baked.py"
@@ -96,6 +96,7 @@ set EXE_NAME=HeightShift_!BUILD_VERSION!
     --windowed ^
     --icon "OSC_Scale.ico" ^
     --add-data "OSC_Scale.ico;." ^
+    --add-data "fonts;fonts" ^
     --name "!EXE_NAME!" ^
     main.py
 
