@@ -471,10 +471,10 @@ class HeightShiftWindow(QMainWindow):
         go = QGridLayout()
         go.setHorizontalSpacing(8)
         go.setVerticalSpacing(6)
-        # Each its own colour: Go instant the Height panel's green (it acts
-        # right here), Go timed cyan like the Timed transition card it runs
+        # Each its own colour (Blise, 2026-11-11): Go instant pink, Go timed
+        # yellow like the Timed transition card it runs
         self.go_instant_btn = QPushButton("Go instant")
-        self.go_instant_btn.setObjectName("Primary")
+        self.go_instant_btn.setObjectName("GoInstant")
         self.go_instant_btn.clicked.connect(self.go_instant_clicked.emit)
         self.play_btn = QPushButton("▶  Go timed")
         self.play_btn.setObjectName("GoTimed")
@@ -501,7 +501,7 @@ class HeightShiftWindow(QMainWindow):
         """Go timed's timing: how long, which curve, the graph of it, and
         what it is doing."""
         frame, lay = card("Timed transition")
-        frame.setProperty("hue", "timed")      # Go timed's cyan: frame, bar, choices, graph
+        frame.setProperty("hue", "timed")      # Go timed's yellow: frame, bar, choices, graph
         self.transition_card = frame
 
         top = hbox(spacing=12)

@@ -59,8 +59,8 @@ A reworked window around one idea: pick a target, then go there instantly or ove
   fit does the panel go under it, and the window never gets narrower than its controls.
 - Nudge now is three columns, +1 over −1, +10 over −10, +100 over −100: grow in a red frame, shrink
   in a blue one.
-- Go instant is filled in the Height panel's green, Go timed in cyan — and the Timed transition card it
-  runs wears the same cyan (frame, bar, the chosen unit and curve, the graph).
+- Go instant is filled pink, Go timed yellow — and the Timed transition card it runs wears the same
+  yellow (frame, bar, the chosen unit and curve, the graph).
 - "Unlock upper limit" goes up to 1000 m (was 100 km), and switching it on stretches the height
   scale's top from 100 m to 1000 m (off: back to 100 m; a range narrowed by hand stays).
 

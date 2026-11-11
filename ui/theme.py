@@ -22,6 +22,9 @@ from . import theme_tokens as T
 # Neon's filled section bar (VRCDollySync / FFMPEG Studio `_NEON_CAT_BARS`
 # green, as OscGoesPurrr's ui/theme.py uses it). Midnight uses tint + accent.
 _NEON_SECTION_BAR = "#1c8a3d"
+# Neon's frame tone per hue: the border column of VRCDollySync's
+# _NEON_CAT_BARS (the Neon source design-518.md names), copied, not mixed.
+_NEON_FRAMES = {"red": "#b04552", "blue": "#3b6ea3"}
 
 TEXT_SCALES = (0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0)
 
@@ -89,18 +92,21 @@ QLabel#MenuGuideLine { color: %(muted)s; font-size: 12px; }
 QLabel#Chip { min-height: 20px; max-height: 20px; }
 
 QPushButton#Step { padding: 6px 10px; min-width: 50px; }
+QPushButton#GoInstant { background: %(instant)s; border-color: %(instant)s; color: %(ink)s; font-weight: 650; }
+QPushButton#GoInstant:hover { background: %(instant)s; border-color: %(txt)s; color: %(ink)s; }
+QPushButton#GoInstant:disabled { background: transparent; border-color: %(instant_mid)s; color: %(dim)s; }
 QPushButton#GoTimed { background: %(timed)s; border-color: %(timed)s; color: %(ink)s; font-weight: 650; }
-QPushButton#GoTimed:hover { background: %(timed_hover)s; border-color: %(timed_hover)s; color: %(ink)s; }
+QPushButton#GoTimed:hover { background: %(timed)s; border-color: %(txt)s; color: %(ink)s; }
 QPushButton#GoTimed:disabled { background: transparent; border-color: %(timed_mid)s; color: %(dim)s; }
 QFrame#Card[hue="timed"] { border-color: %(timed_line)s; }
 QFrame#Card[hue="timed"] QLabel#SectionTitle { background: %(timed_bar)s; color: %(timed_bar_text)s; }
-QFrame#Card[hue="timed"] QPushButton, QFrame#Card[hue="timed"] QAbstractSpinBox { border-color: %(timed_line)s; }
+QFrame#Card[hue="timed"] QPushButton, QFrame#Card[hue="timed"] QAbstractSpinBox { border-color: %(timed_mid)s; }
 QFrame#Card[hue="timed"] QPushButton:hover { background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
 QFrame#Card[hue="timed"] QPushButton:checked { background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
 QFrame#Card[hue="timed"] QAbstractSpinBox:focus { border-color: %(timed)s; }
-QPushButton#Step[sign="plus"] { border-color: %(plus)s; }
+QPushButton#Step[sign="plus"] { border-color: %(plus_frame)s; }
 QPushButton#Step[sign="plus"]:hover { background: %(plus_tint)s; border-color: %(plus)s; color: %(plus)s; }
-QPushButton#Step[sign="minus"] { border-color: %(minus)s; }
+QPushButton#Step[sign="minus"] { border-color: %(minus_frame)s; }
 QPushButton#Step[sign="minus"]:hover { background: %(minus_tint)s; border-color: %(minus)s; color: %(minus)s; }
 QPushButton#Step[sign="plus"]:disabled { border-color: %(plus_mid)s; }
 QPushButton#Step[sign="minus"]:disabled { border-color: %(minus_mid)s; }
@@ -124,7 +130,7 @@ QAbstractSpinBox {
     min-height: 20px; max-height: 20px;
 }
 QAbstractSpinBox:focus { border-color: %(accent)s; }
-QFrame#Card[hue="timed"] QAbstractSpinBox { border: 1px solid %(timed_line)s; }
+QFrame#Card[hue="timed"] QAbstractSpinBox { border: 1px solid %(timed_mid)s; }
 QFrame#Card[hue="timed"] QAbstractSpinBox:focus { border: 1px solid %(timed)s; }
 QAbstractSpinBox:disabled, QPushButton:disabled { color: %(dim)s; }
 QPushButton#Primary:disabled { background: transparent; border-color: %(green_mid)s; color: %(dim)s; }
@@ -177,17 +183,25 @@ def colors() -> Dict[str, str]:
         v["catbar"], v["catbar_text"] = _NEON_SECTION_BAR, v["txt"]
     else:
         v["catbar"], v["catbar_text"] = v["tint"], v["accent"]
+    neon = _mode == "neon"
     # Nudge now: grow in a red frame, shrink in a blue one (Blise's call,
-    # 2026-11-11 — an exception to red = errors only, see ui-style.md)
+    # 2026-11-11 — an exception to red = errors only, see ui-style.md). At
+    # rest the frame wears the hue's frame tone, as every Neon frame does
+    # (Midnight: its mid tone); hovered, the vibrant one.
     v["plus"], v["plus_mid"], v["plus_tint"] = T.PALETTE["red"]
     v["minus"], v["minus_mid"], v["minus_tint"] = T.PALETTE["blue"]
-    # The timed transition's cyan (design-518.md: running, live): Go timed,
-    # and its card's frame, bar, choices and graph, so they read as one thing.
-    # Neon gets the filled bar tones VRCParameterRelay uses for cyan.
-    vib, mid, tint = T.PALETTE["cyan"]
-    v["timed"], v["timed_mid"], v["timed_tint"], v["timed_hover"] = vib, mid, tint, "#8be6f7"
-    if _mode == "neon":
-        v["timed_bar"], v["timed_bar_text"], v["timed_line"] = "#15808f", v["txt"], "#2e93a3"
+    v["plus_frame"] = _NEON_FRAMES["red"] if neon else v["plus_mid"]
+    v["minus_frame"] = _NEON_FRAMES["blue"] if neon else v["minus_mid"]
+    # Go instant: filled pink (Blise, 2026-11-11)
+    v["instant"], v["instant_mid"], v["instant_tint"] = T.PALETTE["pink"]
+    # The timed transition's yellow (Blise, 2026-11-11): Go timed, and its
+    # card's frame, bar, chosen options and graph, so they read as one thing.
+    # The hub's yellow has no Neon bar tone: Neon fills the bar with the
+    # vibrant yellow itself (like the button), Midnight uses tint + vibrant.
+    vib, mid, tint = T.PALETTE["yellow"]
+    v["timed"], v["timed_mid"], v["timed_tint"] = vib, mid, tint
+    if neon:
+        v["timed_bar"], v["timed_bar_text"], v["timed_line"] = vib, v["ink"], vib
     else:
         v["timed_bar"], v["timed_bar_text"], v["timed_line"] = tint, vib, mid
     # the updater's orange (design-518.md: updaters, nags, pending installs)

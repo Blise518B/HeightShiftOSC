@@ -55,8 +55,8 @@ class TransitionGraph(QWidget):
         fm = p.fontMetrics()
 
         outer = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        # the Timed transition card's cyan (theme.colors "timed"), like Go timed
-        accent, faded, rim = c["timed"], c["timed_mid"], c["timed_line"]
+        # the Timed transition card's yellow (theme.colors "timed"), like Go timed
+        accent, faded, rim = c["timed"], c["timed_mid"], c["timed_mid"]
         p.setPen(QPen(QColor(rim), 1))
         p.setBrush(QColor(c["well"]))
         p.drawRoundedRect(outer, 8, 8)
