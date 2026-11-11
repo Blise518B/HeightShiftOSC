@@ -50,6 +50,8 @@ desktop.ini
 # Build outputs
 *.ico
 *.exe
+# ... but the app icon is a source file: build.bat bundles it
+!OSC_Scale.ico
 
 # Claude Code local state
 .claude/
