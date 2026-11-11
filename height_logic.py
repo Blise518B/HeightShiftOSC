@@ -95,6 +95,17 @@ def reported_cm(meters) -> Optional[float]:
     return m * 100.0
 
 
+def default_height_cm(current_cm: Optional[float], scale_factor: Optional[float]) -> Optional[float]:
+    """The avatar's own (default) eye height: VRChat's ScaleFactor is the
+    current eye height over the default one. None when either is unknown
+    or unusable."""
+    if not (is_number(current_cm) and is_number(scale_factor)):
+        return None
+    if current_cm <= 0 or scale_factor <= 0:
+        return None
+    return current_cm / scale_factor
+
+
 def same_height(a: Optional[float], b: Optional[float],
                 tolerance_cm: float = 0.05) -> bool:
     if a is None or b is None:

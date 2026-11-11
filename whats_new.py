@@ -43,7 +43,16 @@ class Release(NamedTuple):
 
 
 RELEASES: Tuple[Release, ...] = (
-    Release("2.0.27", (
+    Release("2.0.29", (
+        Item("Back to your own height",
+             "The ↺ Own height button beside NOW — or numpad * (your own key in Settings "
+             "→ Grow & shrink while held) — puts you back at the avatar's own height, the "
+             "one it has before any scaling.",
+             "own_height", icon="load1"),
+        Item("Lighter in the background",
+             "About a third of the CPU it used while idle: it reads only what it needs "
+             "from VRChat and draws less when you're not looking.",
+             "", icon=""),
         Item("On Linux too",
              "Every release now has a Linux AppImage next to the Windows exe, and it "
              "updates itself the same way.",

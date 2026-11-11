@@ -117,6 +117,14 @@ TRANSITION_MAX_DURATION_S = 99 * 3600
 DEFAULT_HOTKEYS_ENABLED = True     # numpad + / − work from the first start
 DEFAULT_HOTKEY_SPEED_UNIT = "cm"   # height_logic.SPEED_CM: the same cm every second
 DEFAULT_HOTKEY_SPEED = 5.0         # 5 cm per second: 1.7 m -> 2.2 m in 10 s
+# While no key is down the keys are polled this often (a press waits at most
+# this long); while one is down, and a second after, at the send rate.
+HOTKEY_IDLE_POLL_MS = 100
+HOTKEY_AWAKE_S = 1.0
+# The window redraws what a transition tick or VRChat's echo changes at most
+# this often while another window has the focus (it may be watched in a VR
+# overlay, so never frozen); not at all while minimized.
+UI_UNFOCUSED_MS = 100
 HOTKEY_SPEED_MIN = 0.1
 HOTKEY_SPEED_MAX_PCT = 100.0       # doubling every second
 HOTKEY_SPEED_MAX_CM = 1000.0       # 10 m every second

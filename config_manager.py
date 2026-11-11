@@ -87,6 +87,7 @@ def default_config() -> Dict[str, Any]:
         "hotkeys_vrchat_only": True,
         "hotkey_grow": {"vk": 0x6B, "mods": 0},      # numpad +
         "hotkey_shrink": {"vk": 0x6D, "mods": 0},    # numpad -
+        "hotkey_reset": {"vk": 0x6A, "mods": 0},     # numpad *: the avatar's own height
         "hotkey_speed": DEFAULT_HOTKEY_SPEED,
         "hotkey_speed_unit": DEFAULT_HOTKEY_SPEED_UNIT,
     }

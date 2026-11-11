@@ -152,6 +152,35 @@ class TestReceive(unittest.TestCase):
         self.mgr._handle_incoming_osc(VRCHAT_AVATAR_CHANGE_PATH, "avtr_123")
         self.assertEqual(self.changes, [("avtr_123", 101.0)])
 
+    def test_scale_factor_is_passed_on(self):
+        # VRChat's own, read-only: current eye height / the avatar's default
+        seen = []
+        self.mgr.on_scale_factor = lambda f, t: seen.append((f, t))
+        self.mgr._handle_incoming_osc("/avatar/parameters/ScaleFactor", 0.5)
+        self.assertEqual(seen, [(0.5, 101.0)])
+
+    def test_only_wanted_packets_are_decoded(self):
+        # VRChat streams every avatar parameter (~2,900/s with face tracking):
+        # those HeightShift doesn't read are counted, never decoded
+        from pythonosc.osc_message_builder import OscMessageBuilder
+
+        def packet(address, value):
+            b = OscMessageBuilder(address=address)
+            b.add_arg(value)
+            return b.build().dgram
+        scales = []
+        self.mgr.on_scale_factor = lambda f, t: scales.append(f)
+        before = self.mgr._packets_handled
+        d = self.mgr.dispatcher
+        d.call_handlers_for_packet(packet("/avatar/parameters/FT/v2/EyeLeftX", 0.3), None)
+        d.call_handlers_for_packet(packet("/avatar/parameters/ScaleFactorInverse", 2.0), None)
+        self.assertEqual((self.heights, scales), ([], []))
+        self.assertEqual(self.mgr._packets_handled, before + 2)       # still "VRChat talks"
+        d.call_handlers_for_packet(packet("/avatar/eyeheight", 1.6), None)
+        d.call_handlers_for_packet(packet("/avatar/parameters/ScaleFactor", 0.5), None)
+        self.assertEqual([round(m, 3) for m, _t in self.heights], [1.6])
+        self.assertEqual(scales, [0.5])
+
     def test_other_addresses_are_ignored(self):
         self.mgr._handle_incoming_osc("/avatar/parameters/Upright", 0.5)
         self.assertEqual((self.heights, self.changes), ([], []))

@@ -66,6 +66,16 @@ class TestCheckWrite(unittest.TestCase):
             self.assertIsNotNone(check_write(bad, True), bad)
 
 
+class DefaultHeightTest(unittest.TestCase):
+    def test_the_avatars_own_height(self):
+        from height_logic import default_height_cm
+        self.assertEqual(default_height_cm(85.0, 0.5), 170.0)     # scaled to half
+        self.assertEqual(default_height_cm(340.0, 2.0), 170.0)
+        for bad in ((None, 1.0), (170.0, None), (170.0, 0.0), (170.0, -1.0),
+                    (0.0, 1.0), (float("nan"), 1.0)):
+            self.assertIsNone(default_height_cm(*bad))
+
+
 class TestReportedCm(unittest.TestCase):
     def test_exact_no_rounding(self):
         self.assertAlmostEqual(reported_cm(1.734), 173.4)

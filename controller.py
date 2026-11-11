@@ -62,6 +62,8 @@ from constants import (
     ECHO_HOLD_S,
     HOTKEY_SPEED_MAX_CM,
     HOTKEY_SPEED_MAX_PCT,
+    HOTKEY_AWAKE_S,
+    HOTKEY_IDLE_POLL_MS,
     HOTKEY_SPEED_MIN,
     MAX_HEIGHT_CM,
     MIN_HEIGHT_CM,
@@ -91,10 +93,11 @@ from height_logic import (
     hold_height,
     is_number,
     max_height_cm,
+    default_height_cm,
     reported_cm,
     same_height,
 )
-from hotkeys import DEFAULT_GROW, DEFAULT_SHRINK, Hotkey, KeyReader, key_name
+from hotkeys import DEFAULT_GROW, DEFAULT_RESET, DEFAULT_SHRINK, Hotkey, KeyReader, key_name
 from osc.manager import VRChatOSCManager
 from osc.router518 import ROUTER, Router518KeepAlive
 from ui import theme
@@ -132,6 +135,9 @@ class HeightShiftController(QObject):
     _sig_query_missed = Signal(int, int)      # read round, attempt that found nothing
     _sig_menu = Signal(str, object, float)    # menu parameter, value, receive time
     _sig_menu_present = Signal(int, object)   # check round, True / False / None
+    _sig_scale = Signal(float, float)         # VRChat's ScaleFactor, seen at
+    _sig_reset_read = Signal(object)          # ScaleFactor read for a reset (or None)
+    _sig_scale_read = Signal(object)          # ScaleFactor read to show the own height
     _sig_update_checked = Signal(object, bool)   # release info or None, asked by hand
     _sig_update_progress = Signal(int, int)      # downloaded bytes, total (0 = unknown)
     _sig_update_downloaded = Signal(str)         # the verified exe, "" when it failed
@@ -172,6 +178,11 @@ class HeightShiftController(QObject):
         self.hotkeys_vrchat_only = c.get_bool("hotkeys_vrchat_only", True)
         self.hotkey_grow = Hotkey.from_config(c.config.get("hotkey_grow")) or DEFAULT_GROW
         self.hotkey_shrink = Hotkey.from_config(c.config.get("hotkey_shrink")) or DEFAULT_SHRINK
+        self.hotkey_reset = Hotkey.from_config(c.config.get("hotkey_reset")) or DEFAULT_RESET
+        self._reset_key_down = False
+        # VRChat's ScaleFactor for the avatar worn now (current / default eye
+        # height): what "reset to the avatar's height" needs. None = not known.
+        self.scale_factor: Optional[float] = None
         if self.hotkey_grow == self.hotkey_shrink:
             self.hotkey_grow, self.hotkey_shrink = DEFAULT_GROW, DEFAULT_SHRINK
         self.hotkey_unit = c.get_choice("hotkey_speed_unit", DEFAULT_HOTKEY_SPEED_UNIT, SPEED_UNITS)
@@ -238,6 +249,7 @@ class HeightShiftController(QObject):
         self.osc.on_disconnected = lambda: self._sig_disconnected.emit()
         self.osc.on_height_received = lambda m, t: self._sig_height.emit(float(m), float(t))
         self.osc.on_avatar_change = lambda aid, t: self._sig_avatar.emit(str(aid), float(t))
+        self.osc.on_scale_factor = lambda f, t: self._sig_scale.emit(float(f), float(t))
         self.osc.on_menu_parameter = (
             lambda name, value, t: self._sig_menu.emit(str(name), value, float(t)))
 
@@ -250,6 +262,9 @@ class HeightShiftController(QObject):
         q = Qt.QueuedConnection
         self._sig_height.connect(self._on_reported, q)
         self._sig_avatar.connect(self._on_avatar_change, q)
+        self._sig_scale.connect(self._on_scale_factor, q)
+        self._sig_reset_read.connect(self._on_reset_read, q)
+        self._sig_scale_read.connect(self._on_scale_read, q)
         self._sig_connected.connect(self._on_connected, q)
         self._sig_disconnected.connect(self._on_disconnected, q)
         self._sig_query_missed.connect(self._on_query_missed, q)
@@ -301,6 +316,7 @@ class HeightShiftController(QObject):
         w.hotkeys_vrchat_only_toggled.connect(self._on_hotkeys_vrchat_only)
         w.slot_action_changed.connect(self._on_slot_action)
         w.scale_mode_changed.connect(self._on_scale_mode)
+        w.reset_clicked.connect(lambda: self.reset_to_default("button"))
         w.update_chip_clicked.connect(self._open_update)
         w.check_updates_clicked.connect(lambda: self.check_for_updates(manual=True))
         w.update_install_clicked.connect(self._on_update_install)
@@ -558,11 +574,19 @@ class HeightShiftController(QObject):
         changed = not same_height(self.height_cm, cm)
         self.height_cm = cm
         self.height_note = "read from VRChat"
-        self._show_height()
         if first:
+            self._show_height()
             self._status(f"Read {format_height(cm)} from VRChat.")
-        elif changed:
-            self._status(f"VRChat reports {format_height(cm)}.")
+            self._refresh()
+            return
+        # VRChat echoes every height sent (30 a second in a transition): the
+        # number is known at once, the window shows it at its own pace
+        if changed:
+            self.window.pace("status", lambda: self._status(f"VRChat reports {format_height(cm)}."))
+        self.window.pace("height", self._show_height_and_refresh)
+
+    def _show_height_and_refresh(self) -> None:
+        self._show_height()
         self._refresh()
 
     # ------------------------------------------------------------------
@@ -586,6 +610,7 @@ class HeightShiftController(QObject):
             if self.height_cm is None:
                 self._start_reading(QUERY_FIRST_DELAY_MS)
         self._check_menu(QUERY_FIRST_DELAY_MS)
+        self._read_scale_soon(QUERY_FIRST_DELAY_MS + 500)
         self._show_menu_status()                   # "checking…" until VRChat answers
         self._show_height()
         self._refresh()
@@ -622,6 +647,9 @@ class HeightShiftController(QObject):
         self.gate.on_avatar_change(changed_at)
         # The menu closed with the old avatar: a Grow held in it is let go.
         self.menu.on_avatar_change(changed_at)
+        # Its own height is another one: VRChat sends the new ScaleFactor.
+        self.scale_factor = None
+        self._read_scale_soon(2500)
         if self._hotkey_timer.isActive():
             self._hotkey_tick()
         self._menu_present = None
@@ -876,8 +904,9 @@ class HeightShiftController(QObject):
             self._refresh()
             return
         # Not connected at the end: keep ticking, the end height goes out as
-        # soon as VRChat is back.
-        self._refresh_transition()
+        # soon as VRChat is back. (The sends keep the send rate; only the
+        # drawing is paced, see window.pace.)
+        self.window.pace("transition", self._refresh_transition)
 
     def _on_transition_inputs(self) -> None:
         target, _secs, curve, value, unit = self._inputs()
@@ -911,12 +940,90 @@ class HeightShiftController(QObject):
             self._hold_change(0)
 
     def _keys_held(self):
-        """(grow, shrink) as the keyboard has them, if the hotkeys may act."""
+        """(grow, shrink) as the keyboard has them, if the hotkeys may act.
+        The keys first: which window is in front is only asked when one is
+        down (the poll runs all the time)."""
         if not (self.hotkeys_on and self.keys.available) or self.window.capturing_key:
+            return False, False
+        grow, shrink = self.keys.is_held(self.hotkey_grow), self.keys.is_held(self.hotkey_shrink)
+        if not (grow or shrink):
             return False, False
         if self.hotkeys_vrchat_only and not self.keys.vrchat_in_front():
             return False, False
-        return self.keys.is_held(self.hotkey_grow), self.keys.is_held(self.hotkey_shrink)
+        return grow, shrink
+
+    def _reset_key_held(self) -> bool:
+        if not (self.hotkeys_on and self.keys.available) or self.window.capturing_key:
+            return False
+        if not self.keys.is_held(self.hotkey_reset):
+            return False
+        return not self.hotkeys_vrchat_only or self.keys.vrchat_in_front()
+
+    # --- back to the avatar's own height -----------------------------------
+
+    def _on_scale_factor(self, value: float, _seen_at: float) -> None:
+        self.scale_factor = value if value > 0 else None
+        self._show_own_height()
+
+    def _read_scale_soon(self, delay_ms: int) -> None:
+        """Ask VRChat for the ScaleFactor (only sent when it changes), so the
+        reset button can show the avatar's own height before it is pressed."""
+        def ask() -> None:
+            if not self.connected or self.scale_factor is not None:
+                return
+
+            def worker() -> None:
+                self._sig_scale_read.emit(self.osc.read_scale_factor())
+            threading.Thread(target=worker, name="read-scale", daemon=True).start()
+        QTimer.singleShot(delay_ms, ask)
+
+    def _on_scale_read(self, value) -> None:
+        if value is not None and value > 0 and self.scale_factor is None:
+            self._on_scale_factor(float(value), 0.0)
+
+    def _show_own_height(self) -> None:
+        own = default_height_cm(self.height_cm, self.scale_factor)
+        self.window.set_own_height(own, key_name(self.hotkey_reset) if self.hotkeys_on else "",
+                                   ok=self.connected and self.height_cm is not None)
+
+    def reset_to_default(self, source: str = "hotkey") -> None:
+        """Back to the avatar's own height: current / VRChat's ScaleFactor,
+        sent at once. The factor comes with every scale change; when it
+        hasn't come yet, VRChat is asked for it first."""
+        if not self.connected:
+            self._status("Resetting needs VRChat — it isn't connected.", warn=True)
+            return
+        if self.height_cm is None:
+            self._status("Resetting starts from the current height — waiting for VRChat "
+                         "to report it.", warn=True)
+            return
+        if self.scale_factor is None:
+            self._status("Asking VRChat for the avatar's own height…")
+
+            def worker() -> None:
+                self._sig_reset_read.emit(self.osc.read_scale_factor())
+            threading.Thread(target=worker, name="read-scale", daemon=True).start()
+            return
+        self._reset_now()
+
+    def _on_reset_read(self, value) -> None:
+        if value is None or not value > 0:
+            self._status("VRChat didn't say this avatar's own height (no ScaleFactor) — "
+                         "can't reset.", warn=True)
+            return
+        self.scale_factor = float(value)
+        self._reset_now()
+
+    def _reset_now(self) -> None:
+        default = default_height_cm(self.height_cm, self.scale_factor)
+        if default is None:
+            self._status("The avatar's own height isn't known yet.", warn=True)
+            return
+        default = round(default, 2)
+        if same_height(default, self.height_cm):
+            self._status(f"Already at the avatar's own height, {format_height(default)}.")
+            return
+        self._set_absolute(default, "the avatar's own height")
 
     def _held_direction(self) -> int:
         key_grow, key_shrink = self._keys_held()
@@ -925,6 +1032,11 @@ class HeightShiftController(QObject):
         return int(grow) - int(shrink)          # both held: nothing
 
     def _hotkey_tick(self) -> None:
+        # the reset key: once per press, not while held
+        down = self._reset_key_held()
+        if down and not self._reset_key_down:
+            self.reset_to_default("hotkey")
+        self._reset_key_down = down
         direction = self._held_direction()
         if direction != self._hold_dir:
             self._hold_change(direction)
@@ -932,6 +1044,19 @@ class HeightShiftController(QObject):
             self._hold_step()
         if self._hold_dir == 0 and not self._hold_wanted():
             self._hotkey_timer.stop()           # the menu let go, no hotkeys to watch
+        self._pace_hotkeys(bool(direction or down or self._holding))
+
+    def _pace_hotkeys(self, busy: bool) -> None:
+        """The key poll runs all the time hotkeys are on: at 10 Hz while
+        nothing is down, at the send rate while something is (and a second
+        after, for the next press of a quick series)."""
+        if busy:
+            self._keys_awake_until = now() + HOTKEY_AWAKE_S
+        fast = now() < getattr(self, "_keys_awake_until", 0.0)
+        interval = (max(1, round(1000 / self.send_rate)) if fast
+                    else max(HOTKEY_IDLE_POLL_MS, round(1000 / self.send_rate)))
+        if self._hotkey_timer.interval() != interval:
+            self._hotkey_timer.setInterval(interval)
 
     def _hold_change(self, direction: int) -> None:
         """A key went down, came up, or the other one took over."""
@@ -980,12 +1105,14 @@ class HeightShiftController(QObject):
             return
         if self._write(value, self._hold_source, self._hold_source, quiet=True):
             self._hold_last = value
-            self._refresh_transition()      # the graph starts from the live height
+            # the graph starts from the live height
+            self.window.pace("transition", self._refresh_transition)
 
     def _show_hotkeys(self) -> None:
         self.window.set_hotkeys(
             available=self.keys.available, enabled=self.hotkeys_on,
             grow=key_name(self.hotkey_grow), shrink=key_name(self.hotkey_shrink),
+            reset=key_name(self.hotkey_reset),
             speed=self.hotkey_speed, unit=self.hotkey_unit,
             speed_max=_speed_max(self.hotkey_unit), vrchat_only=self.hotkeys_vrchat_only)
 
@@ -999,26 +1126,27 @@ class HeightShiftController(QObject):
                          f"{key_name(self.hotkey_shrink)} to shrink"
                          + (" while VRChat is in front." if self.hotkeys_vrchat_only else "."))
 
+    _KEY_JOBS = {"grow": ("Grow", "grows"), "shrink": ("Shrink", "shrinks"),
+                 "reset": ("Reset", "resets to the avatar's height")}
+
     def _on_hotkey_captured(self, which: str, vk: int, mods: int) -> None:
         hotkey = Hotkey.from_config({"vk": vk, "mods": mods})
-        if hotkey is None or which not in ("grow", "shrink"):
+        if hotkey is None or which not in self._KEY_JOBS:
             self._status("That key can't be a hotkey on its own.", warn=True)
             self._show_hotkeys()
             return
-        other = self.hotkey_shrink if which == "grow" else self.hotkey_grow
-        if hotkey == other:
-            self._status(f"{key_name(hotkey)} already "
-                         f"{'shrinks' if which == 'grow' else 'grows'} — pick another key.",
-                         warn=True)
-            self._show_hotkeys()
-            return
-        if which == "grow":
-            self.hotkey_grow = hotkey
-        else:
-            self.hotkey_shrink = hotkey
+        current = {"grow": self.hotkey_grow, "shrink": self.hotkey_shrink,
+                   "reset": self.hotkey_reset}
+        for other, key in current.items():
+            if other != which and key == hotkey:
+                self._status(f"{key_name(hotkey)} already {self._KEY_JOBS[other][1]} — "
+                             "pick another key.", warn=True)
+                self._show_hotkeys()
+                return
+        setattr(self, f"hotkey_{which}", hotkey)
         self.config.update_config({f"hotkey_{which}": hotkey.to_config()})
         self._show_hotkeys()
-        self._status(f"{'Grow' if which == 'grow' else 'Shrink'} key: {key_name(hotkey)}.")
+        self._status(f"{self._KEY_JOBS[which][0]} key: {key_name(hotkey)}.")
 
     def _on_hotkey_speed(self, speed: float, unit: str) -> None:
         if unit not in SPEED_UNITS:
@@ -1316,6 +1444,10 @@ class HeightShiftController(QObject):
         self.window.status(text)
 
     def _show_height(self) -> None:
+        self._show_own_height()
+        self._show_height_only()
+
+    def _show_height_only(self) -> None:
         if self.height_cm is None:
             sub = ("reading the height from VRChat…" if self.connected
                    else "waiting for VRChat")

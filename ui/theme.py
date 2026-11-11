@@ -121,7 +121,7 @@ QLabel#NewsTitle { color: %(txt)s; font-size: 13px; font-weight: 700; }
 QLabel#NewsText { color: %(muted)s; font-size: 12px; }
 QFrame#SpotBox { border: 2px solid transparent; border-radius: 8px; }
 QFrame#SpotBox[spot="true"], QFrame#Group[spot="true"] { border: 2px solid %(txt)s; }
-QPushButton#ModeCurrent[spot="true"] { border: 2px solid %(txt)s; }
+QPushButton#ModeCurrent[spot="true"], QPushButton#OwnHeight[spot="true"] { border: 2px solid %(txt)s; }
 QPushButton#GoInstant { background: %(instant)s; border-color: %(instant)s; color: %(ink)s; font-weight: 650; }
 QPushButton#GoInstant:hover { background: %(instant)s; border-color: %(txt)s; color: %(ink)s; }
 QPushButton#GoInstant:disabled { background: transparent; border-color: %(instant_mid)s; color: %(dim)s; }
@@ -154,6 +154,8 @@ QPushButton#Small { padding: 3px 12px; }
 QPushButton#Slot { font-family: "Cascadia Mono", Consolas, monospace; padding: 5px 8px; text-align: left;
                    min-height: 20px; max-height: 20px; }
 QPushButton#SlotSave { padding: 5px 7px; min-height: 20px; max-height: 20px; }
+QPushButton#OwnHeight { padding: 2px 10px; font-size: 12px; color: %(muted)s; }
+QPushButton#OwnHeight:hover { color: %(accent)s; border-color: %(accent)s; }
 /* a saved height's ▾ (while Settings are open): joined to its right edge */
 QPushButton#Slot[joined="true"] { border-top-right-radius: 0px; border-bottom-right-radius: 0px; }
 QPushButton#SlotKind { padding: 5px 0px; min-height: 20px; max-height: 20px; min-width: 24px; max-width: 24px;

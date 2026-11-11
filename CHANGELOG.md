@@ -5,16 +5,26 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.27] - 2026-11-11
+## [2.0.29] - 2026-11-11
 
 ### Added
 - Linux: `HeightShift-Linux-x86_64.AppImage` with every release. It updates itself like the Windows exe
   (the new AppImage replaces the old one and starts once the old one has closed). The hold-to-grow
   hotkeys are Windows-only; the VRChat menu's Grow / Shrink work everywhere.
+- Back to the avatar's own height: an "↺ Own height · 1.43 m" button beside NOW, and a reset key (numpad
+  `*` by default, your own in Settings → Grow & shrink while held). The own height is current ÷ VRChat's
+  `ScaleFactor`, which VRChat sends for every avatar (and is asked for after connecting and after an
+  avatar switch, so the button shows it before it is pressed).
 - Releases are built on GitHub: tests on Windows and Linux, then the exe and the AppImage, then the
   release — published only if all of it passed (`release.bat`, `.github/workflows/release.yml`).
 
 ### Changed
+- Much lighter in the background: idle with face tracking running it used ~10–13 % of a CPU core, now
+  ~3.5 %. VRChat streams every avatar parameter to it (~2,900 packets a second here); only the four it
+  reads are decoded, by a plain receive loop. The hotkeys are polled at 10 Hz while nothing is pressed
+  (the send rate while something is), the front window is only asked when a key is down, and what a
+  transition or VRChat's echo changes is redrawn at most 10 times a second while another window has
+  the focus, not at all while minimized (OscGoesPurrr's rules).
 - A saved height's action (select / go instant / go timed) is chosen with a small ▾ joined to its
   right edge, shown while Settings are open — instead of a grid of buttons in Settings. Right-click
   still works.

@@ -55,6 +55,7 @@ class Hotkey:
 
 DEFAULT_GROW = Hotkey(VK_ADD)
 DEFAULT_SHRINK = Hotkey(VK_SUBTRACT)
+DEFAULT_RESET = Hotkey(0x6A)       # numpad *: back to the avatar's own height
 
 _NAMES = {
     VK_ADD: "Num +", VK_SUBTRACT: "Num −", 0x6A: "Num *", 0x6F: "Num /", 0x6E: "Num ,",

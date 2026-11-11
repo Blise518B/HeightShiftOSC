@@ -97,7 +97,8 @@ SNAP_PX = 6                           # a dragged target this near a mark snaps 
 GHOST_ALPHA = 0.55                    # NOW's lines while the height isn't read yet
 
 SMOOTH_TIME_S = 0.07                  # her easing: smooths 30 sends a second, settles in ~0.2 s
-FRAME_MS = 16
+FRAME_MS = 16                         # 60 fps while the window has the focus
+UNFOCUSED_FRAME_MS = 50               # 20 fps while another one has it (OscGoesPurrr's)
 SETTLED = 1e-3                        # in log10(cm): 0.23 %, a third of a pixel at 150 px
 
 
@@ -351,8 +352,8 @@ class SizeComparison(QWidget):
         # picture claims no ratio it doesn't know.
         self._now.aim(now if now is not None else target)
         self._target.aim(target if target is not None else now)
-        if not animate or not self.isVisible():
-            self.snap()
+        if not animate or not self.isVisible() or self.window().isMinimized():
+            self.snap()                # nobody sees the easing: no frames for it
             return
         if not self._timer.isActive():
             self._clock.start()
@@ -383,9 +384,15 @@ class SizeComparison(QWidget):
         return self._now.cm, self._target.cm
 
     def _frame(self) -> None:
-        dt = min(0.05, self._clock.restart() / 1000.0)
+        if self.window().isMinimized():
+            self.snap()
+            return
+        dt = min(0.1, self._clock.restart() / 1000.0)
         if not self.step(dt):
             self._timer.stop()
+        interval = FRAME_MS if self.window().isActiveWindow() else UNFOCUSED_FRAME_MS
+        if self._timer.interval() != interval:
+            self._timer.setInterval(interval)
         self.update()
 
     # --- geometry ------------------------------------------------------

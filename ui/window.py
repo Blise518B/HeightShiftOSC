@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, Optional, Tuple
 
-from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QElapsedTimer, QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QActionGroup, QFont, QFontMetrics, QGuiApplication, QKeySequence,
                            QPixmap, QShortcut)
 from PySide6.QtWidgets import (
@@ -51,6 +51,7 @@ from constants import (
     MENU_PREFAB_URL,
     MIN_HEIGHT_CM,
     SAVED_SLOTS,
+    UI_UNFOCUSED_MS,
     SEND_RATES,
 )
 from height_logic import (
@@ -98,6 +99,7 @@ PLACES = {
     "slots": (False, "slots_box"),
     "slot_actions": (False, "slots_box"),
     "scale_mode": (False, "mode_switch"),
+    "own_height": (False, "reset_btn"),
     "settings_height": (True, "height_group"),
     "updates": (True, "updates_group"),
     "menu_guide": (True, "menu_group"),
@@ -132,6 +134,7 @@ class HeightShiftWindow(QMainWindow):
     # --- user actions ---
     adjust_clicked = Signal(float)            # relative step in cm
     refresh_clicked = Signal()
+    reset_clicked = Signal()                  # back to the avatar's own height
     profile_save = Signal(int)
     go_instant_clicked = Signal()             # set the target now, no transition
     play_clicked = Signal()
@@ -189,6 +192,15 @@ class HeightShiftWindow(QMainWindow):
         self.profile_save_btns: Dict[int, QPushButton] = {}
         self.profile_load_btns: Dict[int, QPushButton] = {}
         self.capturing_key = False      # a hotkey button waits for a key press
+
+        # pace(): what a stream changes, drawn at the window's own pace
+        self._paced: Dict[str, object] = {}          # key -> the newest update waiting
+        self._paced_at: Dict[str, int] = {}          # key -> when it last ran (ms)
+        self._pace_clock = QElapsedTimer()
+        self._pace_clock.start()
+        self._pace_timer = QTimer(self)
+        self._pace_timer.setSingleShot(True)
+        self._pace_timer.timeout.connect(self._run_paced)
 
         self._geo_timer = QTimer(self)
         self._geo_timer.setSingleShot(True)
@@ -297,6 +309,48 @@ class HeightShiftWindow(QMainWindow):
         want = QBoxLayout.LeftToRight if beside else QBoxLayout.TopToBottom
         if self.top_row.direction() != want:
             self.top_row.setDirection(want)
+
+    # --- pacing (OscGoesPurrr's rule: draw what is seen, as often as useful) ---
+
+    def pace_interval_ms(self) -> Optional[int]:
+        """How often a stream may redraw: at once while this window has the
+        focus (or was never shown: tests), every UI_UNFOCUSED_MS while
+        another window has it — never frozen, it may be watched in a VR
+        overlay — and not at all (None) while minimized."""
+        if self.isMinimized():
+            return None
+        if self.isVisible() and not self.isActiveWindow():
+            return UI_UNFOCUSED_MS
+        return 0
+
+    def pace(self, key: str, update) -> None:
+        """Run `update` (a redraw from a stream: a transition tick, VRChat's
+        echo) now, or — when it ran less than the pace ago, or the window is
+        minimized — later, once, with only the newest one kept per `key`."""
+        interval = self.pace_interval_ms()
+        last = self._paced_at.get(key)
+        elapsed = self._pace_clock.elapsed()
+        if interval == 0 or (interval is not None and (last is None or elapsed - last >= interval)):
+            self._paced.pop(key, None)
+            self._paced_at[key] = elapsed
+            update()
+            return
+        self._paced[key] = update
+        if interval is not None and not self._pace_timer.isActive():
+            self._pace_timer.start(max(1, interval - (elapsed - (last or 0))))
+
+    def _run_paced(self) -> None:
+        if self.pace_interval_ms() is None:
+            return                     # minimized: caught up when it comes back
+        waiting, self._paced = self._paced, {}
+        for key, update in waiting.items():
+            self._paced_at[key] = self._pace_clock.elapsed()
+            update()
+
+    def changeEvent(self, event):  # noqa: N802
+        super().changeEvent(event)
+        if event.type() in (QEvent.WindowStateChange, QEvent.ActivationChange) and self._paced:
+            QTimer.singleShot(0, self._run_paced)      # back on screen / in front: catch up
 
     def eventFilter(self, obj, event):  # noqa: N802
         if obj is self.work_scroll and event.type() == QEvent.Resize:
@@ -420,9 +474,15 @@ class HeightShiftWindow(QMainWindow):
         self.refresh_btn.setObjectName("Refresh")
         self.refresh_btn.setToolTip("Read the current height from VRChat again")
         self.refresh_btn.clicked.connect(self.refresh_clicked.emit)
+        # the avatar's own height (before any scaling), shown and one click
+        # away — the same as the Reset key
+        self.reset_btn = QPushButton("↺  Own height")
+        self.reset_btn.setObjectName("OwnHeight")
+        self.reset_btn.setCursor(Qt.PointingHandCursor)
+        self.reset_btn.clicked.connect(self.reset_clicked.emit)
         lay.addLayout(self._key_row("KeyNow", "NOW",
                                     "Bright lines: the avatar's height right now",
-                                    extra=self.refresh_btn))
+                                    extra=self.refresh_btn, trailing=self.reset_btn))
         self.hero = label("—", "HeroValue")
         self.hero.setProperty("known", "false")
         lay.addWidget(self.hero)
@@ -708,6 +768,7 @@ class HeightShiftWindow(QMainWindow):
         keys = hbox(spacing=6)
         self.grow_key_btn = KeyCaptureButton()
         self.shrink_key_btn = KeyCaptureButton()
+        self.reset_key_btn = KeyCaptureButton()
         for which, title, btn in (("grow", "Grow", self.grow_key_btn),
                                   ("shrink", "Shrink", self.shrink_key_btn)):
             btn.setToolTip(f"Click, then press the key that should {which} you while held")
@@ -716,6 +777,17 @@ class HeightShiftWindow(QMainWindow):
             keys.addWidget(label(title, "FieldLabel"))
             keys.addWidget(btn, 1)
         d.addLayout(keys)
+        reset = hbox(spacing=6)
+        self.reset_key_btn.setToolTip("Click, then press the key that puts you back at the "
+                                      "avatar's own height")
+        self.reset_key_btn.captured.connect(
+            lambda vk, mods: self.hotkey_captured.emit("reset", vk, mods))
+        self.reset_key_btn.capturing_changed.connect(self._on_capturing)
+        reset.addWidget(label("Reset", "FieldLabel"))
+        reset.addWidget(self.reset_key_btn, 1)
+        d.addLayout(reset)
+        d.addWidget(hint("Reset: one press puts you back at the avatar's own height — the "
+                         "one it has before any scaling (VRChat tells it)."))
         d.addWidget(hint("Click a key's button, then press the key you want — with Ctrl, "
                           "Shift or Alt if you like. Esc cancels."))
         d.addSpacing(4)
@@ -1160,6 +1232,15 @@ class HeightShiftWindow(QMainWindow):
         self.mode_switch.set_mode(mode)
         self.figure.set_click_action(mode)
 
+    def set_own_height(self, cm: Optional[float], key: str, ok: bool) -> None:
+        """The reset button: the avatar's own height when VRChat has told it."""
+        self.reset_btn.setText(f"↺  Own height · {format_height(cm)}" if cm else "↺  Own height")
+        self.reset_btn.setEnabled(ok)
+        where = f" — or press {key}" if key else ""
+        self.reset_btn.setToolTip(
+            ("Back to the avatar's own height, the one it has before any scaling" + where
+             if ok else "Waiting for VRChat and the avatar's height"))
+
     def set_go_instant(self, ok: bool, tip: str) -> None:
         self.go_instant_btn.setEnabled(ok)
         self.go_instant_btn.setToolTip(tip)
@@ -1260,7 +1341,8 @@ class HeightShiftWindow(QMainWindow):
         self.hide_console_hint.setVisible(available)
 
     def set_hotkeys(self, *, available: bool, enabled: bool, grow: str, shrink: str,
-                    speed: float, unit: str, speed_max: float, vrchat_only: bool) -> None:
+                    speed: float, unit: str, speed_max: float, vrchat_only: bool,
+                    reset: str = "") -> None:
         # Off Windows the keys can't be read: only the speed is left (the
         # VRChat menu uses it too).
         self.hotkeys_box.setVisible(available)
@@ -1268,6 +1350,7 @@ class HeightShiftWindow(QMainWindow):
         self.hotkeys_details.setVisible(enabled)
         self.grow_key_btn.set_key_text(grow)
         self.shrink_key_btn.set_key_text(shrink)
+        self.reset_key_btn.set_key_text(reset)
         self._suppress = True
         try:
             self.hotkey_speed_spin.setMaximum(speed_max)
@@ -1279,7 +1362,8 @@ class HeightShiftWindow(QMainWindow):
         self._update_hotkey_speed_hint()
 
     def _on_capturing(self, _on: bool) -> None:
-        self.capturing_key = self.grow_key_btn.capturing or self.shrink_key_btn.capturing
+        self.capturing_key = (self.grow_key_btn.capturing or self.shrink_key_btn.capturing
+                              or self.reset_key_btn.capturing)
 
     def _on_hotkey_speed_input(self, *_args) -> None:
         if self._suppress:

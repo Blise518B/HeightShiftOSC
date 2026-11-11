@@ -40,6 +40,8 @@ class FakeOSC:
         self.sent = []
         self.local_listen_port = 0
         self.read_result = None            # (metres, asked_at) or None
+        self.scale_read = None             # what read_scale_factor answers
+        self.on_scale_factor = None
         self.ports = {"local_listen_port": 50000, "udp_send_port": 9000}
         self.on_connected = self.on_disconnected = None
         self.on_height_received = self.on_avatar_change = None
@@ -58,6 +60,9 @@ class FakeOSC:
 
     def read_height(self):
         return self.read_result
+
+    def read_scale_factor(self):
+        return self.scale_read
 
 
 class FakeRouter:
@@ -192,6 +197,111 @@ class ControllerTest(unittest.TestCase):
         self.report(1.7)
         self.hold(DEFAULT_GROW, 1.0)
         self.assertEqual(self.osc.sent, [])
+
+    # --- back to the avatar's own height ---------------------------------
+    def test_reset_key_goes_back_to_the_avatars_height_once_per_press(self):
+        self.make(hotkeys_enabled=True)
+        self.connect()
+        self.report(0.85)                                   # scaled to half …
+        self.c._on_scale_factor(0.5, self.clock.t)          # … of a 1.7 m avatar
+        self.hold(self.c.hotkey_reset, 1.0)                 # held for a second
+        self.assertEqual(self.osc.sent, [170.0])            # one reset, not ten
+        self.release()
+
+    def test_reset_asks_vrchat_when_the_factor_is_unknown(self):
+        self.make(hotkeys_enabled=True)
+        self.connect()
+        self.report(3.4)
+        self.osc.scale_read = 2.0                           # what VRChat's tree says
+        self.c.reset_to_default()
+        for _ in range(50):
+            QTest.qWait(10)
+            if self.osc.sent:
+                break
+        self.assertEqual(self.osc.sent, [170.0])
+
+    def test_reset_says_so_when_it_cant(self):
+        self.make()
+        self.connect()
+        self.report(1.7)
+        self.c._on_reset_read(None)                         # VRChat had no ScaleFactor
+        self.assertIn("can't reset", self.window.status_msg.text())
+        self.c._on_scale_factor(1.0, self.clock.t)          # already the avatar's height
+        self.c.reset_to_default()
+        self.assertEqual(self.osc.sent, [])
+        self.assertIn("Already at the avatar's own height", self.window.status_msg.text())
+
+    def test_the_reset_button_shows_and_goes_to_the_avatars_height(self):
+        self.make()
+        btn = self.window.reset_btn
+        self.assertFalse(btn.isEnabled())                       # nothing known yet
+        self.connect()
+        self.report(0.85)
+        self.assertTrue(btn.isEnabled())
+        self.assertNotIn("·", btn.text())                       # its own height unknown
+        self.c._on_scale_factor(0.5, self.clock.t)
+        self.assertIn("170 cm", btn.text())
+        btn.click()
+        self.assertEqual(self.osc.sent, [170.0])
+
+    def test_the_window_paces_a_stream_and_keeps_the_newest(self):
+        self.make()
+        w, ran = self.window, []
+        w.pace_interval_ms = lambda: 100                     # another window has the focus
+        w.pace("x", lambda: ran.append(1))
+        w.pace("x", lambda: ran.append(2))
+        w.pace("x", lambda: ran.append(3))
+        self.assertEqual(ran, [1])                           # the first at once …
+        QTest.qWait(180)
+        self.assertEqual(ran, [1, 3])                        # … then only the newest
+        w.pace_interval_ms = lambda: None                    # minimized: nothing
+        w.pace("x", lambda: ran.append(4))
+        QTest.qWait(150)
+        self.assertEqual(ran, [1, 3])
+        w.pace_interval_ms = lambda: 0                       # back: caught up
+        w._run_paced()
+        self.assertEqual(ran, [1, 3, 4])
+
+    def test_the_key_poll_slows_down_when_nothing_is_pressed(self):
+        self.make(hotkeys_enabled=True)
+        self.connect()
+        self.report(1.7)
+        fast = round(1000 / self.c.send_rate)
+        self.c.keys.down.add(DEFAULT_GROW)
+        self.c._hotkey_tick()
+        self.assertEqual(self.c._hotkey_timer.interval(), fast)
+        self.release()
+        self.clock.t += 2.0                                  # nothing pressed for a while
+        self.c._hotkey_tick()
+        self.assertEqual(self.c._hotkey_timer.interval(), 100)
+
+    def test_the_front_window_is_only_asked_when_a_key_is_down(self):
+        self.make(hotkeys_enabled=True)
+        asked = []
+        self.c.keys.vrchat_in_front = lambda: asked.append(1) or True
+        self.c._hotkey_tick()
+        self.assertEqual(asked, [])
+        self.c.keys.down.add(DEFAULT_GROW)
+        self.c._hotkey_tick()
+        self.assertTrue(asked)
+        self.c.keys.down.clear()
+
+    def test_a_new_avatar_forgets_the_old_factor(self):
+        self.make()
+        self.connect()
+        self.report(0.85)
+        self.c._on_scale_factor(0.5, self.clock.t)
+        self.c._on_avatar_change("avtr_new", self.clock.t + 1)
+        self.assertIsNone(self.c.scale_factor)
+
+    def test_the_reset_key_cant_take_another_keys_job(self):
+        self.make()
+        self.window.hotkey_captured.emit("reset", DEFAULT_GROW.vk, DEFAULT_GROW.mods)
+        self.assertNotEqual(self.c.hotkey_reset, DEFAULT_GROW)
+        self.assertIn("already grows", self.window.status_msg.text())
+        self.window.hotkey_captured.emit("reset", 0x6F, 0)       # numpad /
+        self.assertEqual(self.c.hotkey_reset.vk, 0x6F)
+        self.assertEqual(self.c.config.config["hotkey_reset"]["vk"], 0x6F)
 
     def test_holding_grow_follows_the_speed(self):
         self.make(**self.HOTKEYS)

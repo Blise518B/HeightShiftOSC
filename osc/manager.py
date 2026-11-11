@@ -40,7 +40,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import requests
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_message_builder import OscMessageBuilder
-from pythonosc.osc_server import BlockingOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 from zeroconf import ServiceBrowser, ServiceInfo, ServiceStateChange, Zeroconf
 
@@ -66,6 +65,84 @@ from .diag_log import DiagLog
 
 PARAMETERS = "/avatar/parameters/"
 MENU_ADDRESS = PARAMETERS + MENU_PREFIX          # /avatar/parameters/HeightShift/
+# VRChat's own, for every avatar, read-only: current eye height / the
+# avatar's default eye height (so its default = current / ScaleFactor)
+SCALE_FACTOR = PARAMETERS + "ScaleFactor"
+
+
+class _UdpReceiver:
+    """The OSC listener: one socket, one thread, packets in arrival order.
+
+    A plain recvfrom loop, not socketserver's: that built a handler object
+    and ran select() for every datagram — at VRChat's ~2,900 a second, most
+    of the idle cost even with the packets dropped undecoded (_WantedOnly).
+    Same surface as the server it replaces: socket, server_address,
+    serve_forever, shutdown, server_close."""
+
+    def __init__(self, address, dispatcher: Dispatcher) -> None:
+        self.dispatcher = dispatcher
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # room for a burst while the thread is busy
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
+        except OSError:
+            pass
+        self.socket.bind(address)
+        self.socket.settimeout(0.5)            # to notice shutdown
+        self.server_address = self.socket.getsockname()
+        self._stop = threading.Event()
+
+    def serve_forever(self) -> None:
+        recv = self.socket.recvfrom
+        handle = self.dispatcher.call_handlers_for_packet
+        while not self._stop.is_set():
+            try:
+                data, addr = recv(65536)
+            except socket.timeout:
+                continue
+            except OSError:
+                if self._stop.is_set():
+                    return
+                continue                       # e.g. Windows' ICMP "port unreachable"
+            try:
+                handle(data, addr)
+            except Exception:
+                pass                           # one bad packet never stops the loop
+
+    def shutdown(self) -> None:
+        self._stop.set()
+
+    def server_close(self) -> None:
+        self._stop.set()
+        try:
+            self.socket.close()
+        except OSError:
+            pass
+
+
+class _WantedOnly(Dispatcher):
+    """Decodes only the packets HeightShift reads.
+
+    VRChat streams every avatar parameter to every OSCQuery client that
+    lists an /avatar node — measured 2026-11-11 with face tracking: ~2,900
+    packets a second, and decoding all of them in Python cost ~10 % of a
+    core while the app sat idle. An OSC packet starts with its address, so
+    a few bytes decide: the four addresses below are handed on, everything
+    else is only counted (it still shows VRChat is talking — the health
+    check's "silent" watch) and dropped undecoded."""
+
+    WANTED = (VRCHAT_OSC_PATH.encode() + b"\0", VRCHAT_AVATAR_CHANGE_PATH.encode() + b"\0",
+              MENU_ADDRESS.encode(), SCALE_FACTOR.encode() + b"\0", b"#bundle")
+
+    def __init__(self, seen) -> None:
+        super().__init__()
+        self._seen = seen
+
+    def call_handlers_for_packet(self, data, client_address):
+        if data.startswith(self.WANTED):
+            return super().call_handlers_for_packet(data, client_address)
+        self._seen()
+        return []
 from .oscquery import LOOPBACK, PhonebookServer, host_info, node_value, tree
 
 logger = logging.getLogger(__name__)
@@ -107,6 +184,8 @@ class VRChatOSCManager:
         self.on_avatar_change: Optional[Callable[[str, float], None]] = None      # id, seen at
         # HeightShift's own menu parameters (constants.MENU_*): name, value, seen at
         self.on_menu_parameter: Optional[Callable[[str, Any, float], None]] = None
+        # VRChat's ScaleFactor (see SCALE_FACTOR): value, seen at
+        self.on_scale_factor: Optional[Callable[[float, float], None]] = None
 
         # --- VRChat ---
         self.vrc_ip = LOOPBACK                 # always: every socket here is loopback-only
@@ -118,14 +197,14 @@ class VRChatOSCManager:
 
         # --- us ---
         self.local_listen_port = 0
-        self.osc_server: Optional[BlockingOSCUDPServer] = None
+        self.osc_server: Optional[_UdpReceiver] = None
         self.osc_client: Optional[SimpleUDPClient] = None
         self.phonebook: Optional[PhonebookServer] = None
         self.service_name = make_service_name()
         self._advertised: List[ServiceInfo] = []
         self._sockets_open = False
         self._setup_lock = threading.Lock()
-        self.dispatcher = Dispatcher()
+        self.dispatcher = _WantedOnly(self._note_packet)
         self.dispatcher.set_default_handler(self._handle_incoming_osc)
 
         # --- discovery ---
@@ -307,7 +386,7 @@ class VRChatOSCManager:
         # spawned a thread per datagram — VRChat streams every avatar
         # parameter, hundreds a second with face tracking — and two eye
         # heights could then be handled in the wrong order.
-        server = BlockingOSCUDPServer((LOOPBACK, 0), self.dispatcher)
+        server = _UdpReceiver((LOOPBACK, 0), self.dispatcher)
         self.osc_server = server
         self.local_listen_port = server.server_address[1]
         threading.Thread(target=server.serve_forever, daemon=True,
@@ -591,6 +670,11 @@ class VRChatOSCManager:
     # Receiving, reading, sending
     # ------------------------------------------------------------------
 
+    def _note_packet(self) -> None:
+        """A packet HeightShift doesn't read: it only counts (cheap)."""
+        self._packets_handled += 1
+        self._last_packet_time = time.monotonic()
+
     def _handle_incoming_osc(self, address: str, *args: Any) -> None:
         seen_at = self._clock()
         try:
@@ -613,6 +697,10 @@ class VRChatOSCManager:
                 cb = self.on_menu_parameter
                 if cb is not None:
                     cb(address[len(PARAMETERS):], args[0], seen_at)
+            elif address == SCALE_FACTOR and args:
+                cb = self.on_scale_factor
+                if cb is not None:
+                    cb(float(args[0]), seen_at)
         except Exception as e:
             # Never let one bad packet stop the receive thread.
             self._handler_errors += 1
@@ -643,6 +731,25 @@ class VRChatOSCManager:
             return None
         self._log(f"GET {VRCHAT_OSC_PATH} = {meters} m")
         return meters, asked_at
+
+    def read_scale_factor(self) -> Optional[float]:
+        """Ask VRChat's OSCQuery tree for the avatar's ScaleFactor (it is only
+        sent when it changes): the value, or None when it couldn't be read."""
+        port = self.http_port
+        if not self.is_connected or not port:
+            return None
+        try:
+            r = requests.get(f"http://{LOOPBACK}:{port}{SCALE_FACTOR}",
+                             timeout=VRCHAT_HTTP_TIMEOUT)
+            if r.status_code != 200:
+                self._log(f"GET {SCALE_FACTOR}: HTTP {r.status_code}")
+                return None
+            value = float(node_value(r.json()))
+        except Exception as e:
+            self._log(f"GET {SCALE_FACTOR} failed: {type(e).__name__}: {e}")
+            return None
+        self._log(f"GET {SCALE_FACTOR} = {value}")
+        return value
 
     def has_menu(self) -> Optional[bool]:
         """Does the avatar in VRChat have HeightShift's menu? Asks VRChat's

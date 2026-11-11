@@ -56,6 +56,11 @@ steps, hold a key, or use its own menu in VRChat.
   your own keys (numpad + / − by default, with Ctrl / Shift / Alt if you like). By default they only work
   while VRChat is the window in front, so typing the key in Discord changes nothing. The keys are read,
   never intercepted: every other program still gets them. Windows only.
+- **Back to the avatar's own height** — the "↺ Own height · 1.43 m" button beside NOW, or the reset key
+  (numpad `*` by default, your own in Settings): one press puts you back at the height the avatar has
+  before any scaling. VRChat reports it indirectly: its
+  `ScaleFactor` parameter is the current eye height over the avatar's own, so own = current ÷
+  ScaleFactor (read from VRChat when it hasn't been sent yet).
 - **Unlock upper limit** — off: nothing above 100 m is ever sent. On: up to 1000 m, and the height
   scale's top goes up to 1000 m with it (off again: back to 100 m). VRChat or the world may still cap
   it lower.
@@ -125,7 +130,7 @@ Keys: `profiles` (`profile1`–`profile4`, cm) · `startup_mode` (`query` = read
 = send `startup_height` once, the first time VRChat connects) · `startup_height` ·
 `slider_min_value` / `slider_max_value` (the height scale's ends) · `preserve_height_on_avatar_switch` · `unlock_upper_limit` ·
 `transition_target_cm` / `transition_duration` / `transition_unit` / `transition_curve` ·
-`hotkeys_enabled` · `hotkey_grow` / `hotkey_shrink` (`{"vk": <Windows key code>, "mods": <1 Ctrl | 2 Shift
+`hotkeys_enabled` · `hotkey_grow` / `hotkey_shrink` / `hotkey_reset` (`{"vk": <Windows key code>, "mods": <1 Ctrl | 2 Shift
 | 4 Alt>}`) · `hotkey_speed` / `hotkey_speed_unit` (`pct` / `cm`) · `hotkeys_vrchat_only` ·
 `osc_router_518` · `hide_console` · `ui_mode` (`neon` / `midnight`) · `text_scale` · `settings_open` ·
 `window_geometry_qt` · `skip_update_version` (the release tag set to "don't remind me") ·
