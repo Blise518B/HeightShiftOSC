@@ -87,15 +87,21 @@ run.bat
 `run.bat` creates / repairs a virtual environment, installs [`requirements.txt`](requirements.txt)
 (PySide6, python-osc, zeroconf, requests) and starts `main.py`. Python 3.10+.
 
-Build a standalone exe with `build.bat` (PyInstaller, one file, windowed). It also writes
-`dist\HeightShift.exe`, the release asset's fixed name.
+**Linux:** download `HeightShift-Linux-x86_64.AppImage` from the latest release, make it executable
+(`chmod +x`) and run it — it updates itself like the exe. From source: `python3 -m venv venv &&
+venv/bin/pip install -r requirements.txt && venv/bin/python main.py`. Everything works there except
+the hold-to-grow hotkeys, which read Windows' key state (the VRChat menu's Grow / Shrink still do).
 
-**A release** is a GitHub release on `Blise518B/HeightShiftOSC` tagged `v<version>` — the version the
-build printed (`version.py`: `2.0.<commits on main>`, so build it on `main`) — carrying
-`dist\HeightShift.exe` and `docs\unity\HeightShift-VRCFury.unitypackage`. The updater looks for
-an `.exe` with "heightshift" in its name on the newest release; the Settings guide's "Get the VRCFury
-prefab" link is `releases/latest/download/HeightShift-VRCFury.unitypackage`. Both need the repository
-to be public.
+Build a standalone exe for yourself with `build.bat` (PyInstaller, one file, windowed); Linux:
+`bash tools/build_linux.sh`.
+
+**A release** is built on GitHub, never here: `release.bat` starts
+[`.github/workflows/release.yml`](.github/workflows/release.yml) on `main`, which tests on Windows and
+Linux, builds `HeightShift.exe` and `HeightShift-Linux-x86_64.AppImage` with the version
+`2.0.<commits on main>` baked in, and only then publishes the release `v<version>` with both, the
+VRChat menu package and the notes from CHANGELOG.md's `## [<version>]` section. A failed test or build
+publishes nothing. The updater picks its platform's file from the newest release; the Settings guide's
+"Get the VRCFury prefab" link is `releases/latest/download/HeightShift-VRCFury.unitypackage`.
 
 ## VRChat setup
 
@@ -163,6 +169,7 @@ python -m unittest discover -s tests
 | `whats_new.py`, `ui/whats_new.py` | What's new: the notes per release and the rule for when they show (pure data); its window. Add a release at the top of `RELEASES` |
 | `updater.py`, `ui/update_dialog.py` | the self-update (VRCParameterRelay's): ask GitHub, verified download, the swap helper; the update window (a pure view) |
 | `assets/menu/` | the VRChat menu's icons for Settings' mini guide (96 px copies, `tools/make_menu_icons.py --app-only`) |
+| `release.bat`, `.github/workflows/release.yml`, `tools/build_linux.sh`, `tools/bake_version.py` | a release: started here, tested, built (exe + AppImage) and published on GitHub |
 | `tools/make_preview.py` | draws `docs/preview.png` (this README's picture), `docs/site/og.png` (link previews) and `docs/site/app.png` from the app itself; re-run it when the window changes |
 | `docs/index.html`, `docs/site/` | the website (GitHub Pages from `/docs` on `main`): the download, what it does, the VRChat menu; `site/tokens.css` is a verbatim copy of `_hub\design\tokens.css`, `site/app.png` the app's default window |
 

@@ -453,7 +453,9 @@ class HeightShiftController(QObject):
             w.set_update_failed("Couldn't start the installer — nothing was changed. "
                                 f"The new version was saved to {path}")
             return
-        logger.info("Update checked; closing so the helper can swap the exe")
+        logger.info("Update checked; closing so the new version can take over")
+        if updater.relaunch_after_apply():
+            updater.relaunch_when_gone()      # Linux: the new AppImage, once we're gone
         w.set_update_installing()
         # closeEvent -> stop(); once this process is gone the helper replaces
         # the exe and starts the new one

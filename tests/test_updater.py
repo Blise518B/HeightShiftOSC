@@ -102,6 +102,41 @@ class VersionTest(unittest.TestCase):
         self.assertFalse(updater.apply_update(os.path.join(tempfile.gettempdir(), "nope.exe")))
 
 
+class LinuxTest(unittest.TestCase):
+    """The AppImage: picked on Linux, swapped in place (OscGoesPurrr's way)."""
+
+    ASSETS = [{"name": "HeightShift.exe", "browser_download_url": "https://x/HeightShift.exe"},
+              {"name": "HeightShift-Linux-x86_64.AppImage",
+               "browser_download_url": "https://x/HeightShift-Linux-x86_64.AppImage"},
+              {"name": "HeightShift-Linux-x86_64.AppImage.zsync",
+               "browser_download_url": "https://x/HeightShift-Linux-x86_64.AppImage.zsync"}]
+
+    def test_each_platform_gets_its_own_file(self):
+        self.assertEqual(updater.pick_exe_asset(self.ASSETS, "win32")["name"], "HeightShift.exe")
+        self.assertEqual(updater.pick_exe_asset(self.ASSETS, "linux")["name"],
+                         "HeightShift-Linux-x86_64.AppImage")
+        self.assertIsNone(updater.pick_exe_asset(self.ASSETS[:1], "linux"))
+        self.assertTrue(updater.relaunch_after_apply("linux"))
+        self.assertFalse(updater.relaunch_after_apply("win32"))
+
+    def test_the_appimage_is_swapped_whole(self):
+        folder = tempfile.mkdtemp(prefix="hs-swap-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        target = os.path.join(folder, "HeightShift-Linux-x86_64.AppImage")
+        new = os.path.join(folder, "download.AppImage")
+        with open(target, "wb") as fh:
+            fh.write(b"old")
+        with open(new, "wb") as fh:
+            fh.write(b"new version")
+        self.assertTrue(updater.apply_update(new, target, platform="linux"))
+        with open(target, "rb") as fh:
+            self.assertEqual(fh.read(), b"new version")
+        self.assertFalse(os.path.exists(new))                   # the download moved in
+        self.assertFalse(os.path.exists(target + ".update"))    # nothing half-done left
+        self.assertFalse(updater.apply_update(os.path.join(folder, "gone"), target,
+                                              platform="linux"))
+
+
 class CheckTest(unittest.TestCase):
     def test_newer_same_offline_junk(self):
         body = json.dumps(release()).encode()

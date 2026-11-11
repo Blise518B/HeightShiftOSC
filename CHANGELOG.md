@@ -5,6 +5,15 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.27] - 2026-11-11
+
+### Added
+- Linux: `HeightShift-Linux-x86_64.AppImage` with every release. It updates itself like the Windows exe
+  (the new AppImage replaces the old one and starts once the old one has closed). The hold-to-grow
+  hotkeys are Windows-only; the VRChat menu's Grow / Shrink work everywhere.
+- Releases are built on GitHub: tests on Windows and Linux, then the exe and the AppImage, then the
+  release — published only if all of it passed (`release.bat`, `.github/workflows/release.yml`).
+
 ## [2.0.26] - 2026-11-11
 
 ### Added

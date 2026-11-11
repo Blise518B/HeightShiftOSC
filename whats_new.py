@@ -43,6 +43,12 @@ class Release(NamedTuple):
 
 
 RELEASES: Tuple[Release, ...] = (
+    Release("2.0.27", (
+        Item("On Linux too",
+             "Every release now has a Linux AppImage next to the Windows exe, and it "
+             "updates itself the same way.",
+             "updates", icon=""),
+    )),
     Release("2.0.26", (
         Item("Six saved heights",
              "Two more slots, three across in the Height panel.",

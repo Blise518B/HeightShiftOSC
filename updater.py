@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -88,33 +89,66 @@ def is_newer(remote, local) -> bool:
 
 # -- what can update itself -----------------------------------------------------
 
+def _is_windows(platform: Optional[str] = None) -> bool:
+    return (platform or sys.platform).startswith("win")
+
+
+def _appimage_path() -> Optional[str]:
+    """The AppImage a frozen Linux build was started from ($APPIMAGE, set by
+    the AppImage runtime), or None."""
+    path = os.environ.get("APPIMAGE", "")
+    return path if path and os.path.isfile(path) else None
+
+
 def is_self_updatable() -> bool:
-    """True for a frozen one-file Windows exe — the only build with a single
-    file we can swap. (_MEIPASS marks one-file; a one-folder build would be
-    torn in half by replacing just the exe.)"""
-    return (sys.platform.startswith("win")
-            and bool(getattr(sys, "frozen", False))
-            and hasattr(sys, "_MEIPASS")
-            and os.path.isfile(sys.executable))
+    """True for a build we can replace: the one-file Windows exe (_MEIPASS
+    marks one-file; a one-folder build would be torn in half by replacing
+    just the exe), or on Linux the AppImage, in a folder we may write to
+    (the swap renames a new file over the old one)."""
+    if not getattr(sys, "frozen", False):
+        return False
+    if not _is_windows():
+        path = _appimage_path()
+        return bool(path) and os.access(os.path.dirname(path), os.W_OK)
+    return hasattr(sys, "_MEIPASS") and os.path.isfile(sys.executable)
 
 
 def current_exe_path() -> str:
+    """The running exe, or on Linux the AppImage (the file to replace)."""
+    if not _is_windows():
+        path = _appimage_path()
+        if path:
+            return os.path.abspath(path)
     return os.path.abspath(sys.executable)
 
 
-def pick_exe_asset(assets) -> Optional[dict]:
-    """The Windows exe among a release's assets, as
-    {"name", "url", "size", "sha256"} — sha256 is None when GitHub reported
-    no digest. None when the release has no exe (yet: CI attaches it a few
-    minutes after the release is created)."""
+def relaunch_after_apply(platform: Optional[str] = None) -> bool:
+    """Whether the app must start itself again after apply_update: Windows'
+    swap helper starts the new exe; on Linux the AppImage is already
+    swapped and nobody else is waiting to start it (relaunch_when_gone)."""
+    return not _is_windows(platform)
+
+
+def _looks_like_ours(name: str, platform: Optional[str] = None) -> bool:
+    lowered = (name or "").lower()
+    if "heightshift" not in lowered:
+        return False
+    return lowered.endswith(".exe") if _is_windows(platform) else lowered.endswith(".appimage")
+
+
+def pick_exe_asset(assets, platform: Optional[str] = None) -> Optional[dict]:
+    """This platform's download among a release's assets — the .exe on
+    Windows, the .AppImage on Linux — as {"name", "url", "size", "sha256"}
+    (sha256 None when GitHub reported no digest). None when the release has
+    none (yet: GitHub Actions attaches them a few minutes after the release
+    is created)."""
     if not isinstance(assets, (list, tuple)):
         return None
     for asset in assets:
         if not isinstance(asset, dict):
             continue
         name = str(asset.get("name") or "")
-        lowered = name.lower()
-        if not (lowered.endswith(".exe") and "heightshift" in lowered):
+        if not _looks_like_ours(name, platform):
             continue
         url = str(asset.get("browser_download_url") or "")
         if not url.lower().startswith("https://"):
@@ -203,8 +237,8 @@ def download_update(asset: dict,
             total = expected_size or int(res.headers.get("Content-Length") or 0)
             if total > _MAX_ASSET_BYTES:
                 return None
-            fd, tmp_path = tempfile.mkstemp(prefix="HeightShift_update_",
-                                            suffix=".exe")
+            fd, tmp_path = tempfile.mkstemp(
+                prefix="HeightShift_update_", suffix=".exe" if _is_windows() else ".AppImage")
             hasher = hashlib.sha256()
             done = 0
             with os.fdopen(fd, "wb") as out:
@@ -309,12 +343,63 @@ rd /s /q "%~dp0."
 """
 
 
-def apply_update(downloaded_exe: str, target_exe: Optional[str] = None) -> bool:
-    """Hand the swap to a detached helper and return.
+def _swap_in_place(downloaded: str, target: str) -> bool:
+    """Linux: put the new AppImage where the running one is. Copied next to
+    it first, then renamed over it — a rename within one folder is atomic,
+    so the file on disk is always the whole old or the whole new AppImage,
+    even if the copy dies with a full disk. The running app keeps the old
+    one open until it exits."""
+    staged = target + ".update"
+    try:
+        shutil.copyfile(downloaded, staged)
+        mode = os.stat(target).st_mode & 0o777        # the old file's, and runnable
+        os.chmod(staged, mode | 0o100 | ((mode & 0o044) >> 2))
+        os.replace(staged, target)
+    except Exception:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        return False
+    try:
+        os.unlink(downloaded)
+    except OSError:
+        pass
+    return True
 
-    The caller must quit right afterwards: the helper waits for this process
-    to exit before it touches the exe. Returns False (having changed nothing)
-    if the helper could not be written or started.
+
+def relaunch_when_gone(path: Optional[str] = None) -> bool:
+    """Linux, after the swap: start the (new) AppImage once THIS process has
+    exited — before that, the new one would find the old one running and
+    only bring it to the front (single_instance.py). A detached shell waits
+    for our pid, then starts it with the environment we were started with
+    (PyInstaller's library path undone)."""
+    path = os.path.abspath(path or current_exe_path())
+    env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
+    if "LD_LIBRARY_PATH_ORIG" in env:
+        env["LD_LIBRARY_PATH"] = env["LD_LIBRARY_PATH_ORIG"]
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    script = 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"'
+    try:
+        subprocess.Popen(["/bin/sh", "-c", script, "sh", str(os.getpid()), path],
+                         env=env, close_fds=True, start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+
+
+def apply_update(downloaded_exe: str, target_exe: Optional[str] = None,
+                 platform: Optional[str] = None) -> bool:
+    """Install a verified download over the running app.
+
+    Windows: hand the swap to a detached helper and return; the caller must
+    quit right afterwards (the helper waits for this process to exit, then
+    swaps and starts the new exe). Linux: the AppImage is swapped right here;
+    the caller then quits and relaunch_when_gone starts the new one.
+    Returns False (having changed nothing) if that could not be done.
     """
     global _lock_handle
     if not downloaded_exe or not os.path.isfile(downloaded_exe):
@@ -322,6 +407,8 @@ def apply_update(downloaded_exe: str, target_exe: Optional[str] = None) -> bool:
     target = os.path.abspath(target_exe or current_exe_path())
     if not os.path.isfile(target):
         return False
+    if not _is_windows(platform):
+        return _swap_in_place(downloaded_exe, target)
     script_path = None
     try:
         script_dir = tempfile.mkdtemp(prefix="HeightShift_swap_")
