@@ -482,10 +482,14 @@ class HeightShiftWindow(QMainWindow):
         self.reset_btn.clicked.connect(self.reset_clicked.emit)
         lay.addLayout(self._key_row("KeyNow", "NOW",
                                     "Bright lines: the avatar's height right now",
-                                    extra=self.refresh_btn, trailing=self.reset_btn))
+                                    extra=self.refresh_btn))
         self.hero = label("—", "HeroValue")
         self.hero.setProperty("known", "false")
-        lay.addWidget(self.hero)
+        hero_row = hbox(spacing=8)
+        hero_row.addWidget(self.hero, 1)
+        # top right, beside the height: a real button, as big as the others
+        hero_row.addWidget(self.reset_btn, 0, Qt.AlignVCenter)
+        lay.addLayout(hero_row)
         self.hero_sub = label("waiting for VRChat", "HeroSub", wrap=True)
         lay.addWidget(self.hero_sub)
         lay.addSpacing(2)

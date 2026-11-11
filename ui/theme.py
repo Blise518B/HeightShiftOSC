@@ -154,8 +154,7 @@ QPushButton#Small { padding: 3px 12px; }
 QPushButton#Slot { font-family: "Cascadia Mono", Consolas, monospace; padding: 5px 8px; text-align: left;
                    min-height: 20px; max-height: 20px; }
 QPushButton#SlotSave { padding: 5px 7px; min-height: 20px; max-height: 20px; }
-QPushButton#OwnHeight { padding: 2px 10px; font-size: 12px; color: %(muted)s; }
-QPushButton#OwnHeight:hover { color: %(accent)s; border-color: %(accent)s; }
+QPushButton#OwnHeight { padding: 6px 12px; }
 /* a saved height's ▾ (while Settings are open): joined to its right edge */
 QPushButton#Slot[joined="true"] { border-top-right-radius: 0px; border-bottom-right-radius: 0px; }
 QPushButton#SlotKind { padding: 5px 0px; min-height: 20px; max-height: 20px; min-width: 24px; max-width: 24px;
