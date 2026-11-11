@@ -405,10 +405,13 @@ class HeightShiftWindow(QMainWindow):
         steps.setHorizontalSpacing(6)
         steps.setVerticalSpacing(6)
         self.step_btns = []
-        for i, delta in enumerate((-100, -10, -1, 1, 10, 100)):
+        # -N over +N, smallest step first: each column one size, shrink in
+        # a blue frame above grow in a red one
+        for i, delta in enumerate((-1, -10, -100, 1, 10, 100)):
             sign = "+" if delta > 0 else "−"      # a real minus sign
             btn = QPushButton(f"{sign}{abs(delta)}")
             btn.setObjectName("Step")
+            btn.setProperty("sign", "plus" if delta > 0 else "minus")
             tip = f"{'Grow' if delta > 0 else 'Shrink'} by {abs(delta)} cm, now"
             btn.setProperty("defaultTip", tip)
             btn.setToolTip(tip)
@@ -564,8 +567,9 @@ class HeightShiftWindow(QMainWindow):
         self.unlock_cb = QCheckBox("Unlock upper limit")
         self.unlock_cb.toggled.connect(self.unlock_toggled.emit)
         g.addWidget(self.unlock_cb)
-        g.addWidget(hint("Off: nothing above 100 m is ever sent. On: up to 100 km. "
-                          "VRChat or the world can still cap the height lower."))
+        g.addWidget(hint("Off: nothing above 100 m is ever sent. On: up to 1000 m, and the "
+                          "height scale reaches up to it. VRChat or the world can still cap "
+                          "the height lower."))
         g.addSpacing(4)
         rate = hbox(spacing=6)
         rate.addWidget(label("Updates per second", "FieldLabel"))

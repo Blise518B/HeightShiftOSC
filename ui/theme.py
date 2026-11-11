@@ -89,6 +89,12 @@ QLabel#MenuGuideLine { color: %(muted)s; font-size: 12px; }
 QLabel#Chip { min-height: 20px; max-height: 20px; }
 
 QPushButton#Step { padding: 6px 10px; min-width: 50px; }
+QPushButton#Step[sign="plus"] { border-color: %(plus)s; }
+QPushButton#Step[sign="plus"]:hover { background: %(plus_tint)s; border-color: %(plus)s; color: %(plus)s; }
+QPushButton#Step[sign="minus"] { border-color: %(minus)s; }
+QPushButton#Step[sign="minus"]:hover { background: %(minus_tint)s; border-color: %(minus)s; color: %(minus)s; }
+QPushButton#Step[sign="plus"]:disabled { border-color: %(plus_mid)s; }
+QPushButton#Step[sign="minus"]:disabled { border-color: %(minus_mid)s; }
 QPushButton#Seg { padding: 5px 12px; min-height: 20px; max-height: 20px; }
 QLineEdit#ScaleEdit {
     padding: 1px 5px; font-size: 13px; font-weight: 700; border-color: %(accent)s;
@@ -160,6 +166,10 @@ def colors() -> Dict[str, str]:
         v["catbar"], v["catbar_text"] = _NEON_SECTION_BAR, v["txt"]
     else:
         v["catbar"], v["catbar_text"] = v["tint"], v["accent"]
+    # Nudge now: grow in a red frame, shrink in a blue one (Blise's call,
+    # 2026-11-11 — an exception to red = errors only, see ui-style.md)
+    v["plus"], v["plus_mid"], v["plus_tint"] = T.PALETTE["red"]
+    v["minus"], v["minus_mid"], v["minus_tint"] = T.PALETTE["blue"]
     # the updater's orange (design-518.md: updaters, nags, pending installs)
     v["upd"], v["upd_mid"], v["upd_tint"] = T.PALETTE["orange"]
     # the size comparison's target shadow (ui/figure.py), for its colour key

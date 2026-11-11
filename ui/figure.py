@@ -9,7 +9,7 @@ lines. Equal heights are a filled, outlined figure.
 Both stand ON the scale on the left. VRChat's height is EYE height, so each
 stands with her eyes at her height on it: a hairline runs from the scale to
 her head and on past it, and only a faint dotted line crosses her face. The scale is logarithmic — every decade
-gets the same room, so 1 cm and 100 km are both easy to see and to pick — and
+gets the same room, so 1 cm and 1000 m are both easy to see and to pick — and
 it picks the target: its ends are the slider range, marked MIN and MAX,
 or LIMIT when the top is the most that may be sent. Nothing on it sends a
 height — picking only moves the target, and Go instant or Go timed (in the

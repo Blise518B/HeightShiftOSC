@@ -385,7 +385,7 @@ def hold_height(base_cm: float, seconds: float, speed: float, unit: str,
 # The height scale (logarithmic)
 # ----------------------------------------------------------------------
 # The scale beside the figure is the height slider. 1 cm .. 100 m is four
-# decades (100 km: seven); on a log scale each decade gets the same room, so
+# decades (unlocked, 1000 m: five); on a log scale each decade gets the same room, so
 # 170 cm is as easy to hit as 17 m. Its ends are the slider range.
 
 

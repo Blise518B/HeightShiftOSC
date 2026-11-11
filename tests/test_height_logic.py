@@ -279,7 +279,7 @@ class TestCheckRange(unittest.TestCase):
     def test_a_good_range(self):
         self.assertIsNone(check_range(1, 10_000, False))
         self.assertIsNone(check_range(50, 2000, False))
-        self.assertIsNone(check_range(1, 10_000_000, True))
+        self.assertIsNone(check_range(1, UNLOCKED_MAX_HEIGHT_CM, True))
 
     def test_refused_never_clamped(self):
         self.assertIn("limit", check_range(1, 50_000, False))

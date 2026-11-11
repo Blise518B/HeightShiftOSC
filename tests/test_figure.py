@@ -43,7 +43,7 @@ class RatioTextTest(unittest.TestCase):
 
     def test_huge_ratio_reads_in_full(self):
         self.assertEqual(ratio_text(MIN_HEIGHT_CM, UNLOCKED_MAX_HEIGHT_CM),
-                         ("×10,000,000", "bigger"))
+                         ("×100,000", "bigger"))
 
     def test_same_height(self):
         self.assertEqual(ratio_text(170, 170), ("=", "same height"))

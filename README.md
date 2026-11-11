@@ -20,7 +20,7 @@ steps, hold a key, or use its own menu in VRChat.
   front, each with her eyes at her height on the scale (VRChat's height is eye height; the height line
   stops at her head and only a faint dotted line crosses her face), with the ratio written out (×29.4).
   The scale is
-  logarithmic — 1 cm and 100 km are both easy to see and to pick, so the picture is not to scale — and
+  logarithmic — 1 cm and 1000 m are both easy to see and to pick, so the picture is not to scale — and
   its ends are a range you set (MIN and MAX, or LIMIT at the cap): click either number on the scale and
   type a new one (Enter keeps it, Esc doesn't; a range that can't be is refused with why, never clamped).
   The figures ease smoothly on every click, every transition step and while a key is held; what marks a
@@ -48,9 +48,10 @@ steps, hold a key, or use its own menu in VRChat.
   your own keys (numpad + / − by default, with Ctrl / Shift / Alt if you like). By default they only work
   while VRChat is the window in front, so typing the key in Discord changes nothing. The keys are read,
   never intercepted: every other program still gets them. Windows only.
-- **Unlock upper limit** — off: nothing above 100 m is ever sent. On: up to 100 km. VRChat or the world
-  may still cap it lower.
-- Nudge now: ±1, ±10, ±100 cm, sent at once. Save current height to: stores your height in one of the four
+- **Unlock upper limit** — off: nothing above 100 m is ever sent. On: up to 1000 m, and the height
+  scale's top goes up to 1000 m with it (off again: back to 100 m). VRChat or the world may still cap
+  it lower.
+- Nudge now: ±1, ±10, ±100 cm, sent at once (−N in a blue frame over +N in a red one). Save current height to: stores your height in one of the four
   saved heights.
 - **Keep my height when I switch avatars** — resends the height you had *before* the change for about
   two seconds, and once more if VRChat didn't take it. Any manual change cancels it.

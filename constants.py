@@ -24,10 +24,11 @@ DEFAULT_OSC_ROUTER_518 = True
 # Values VRChat REPORTS are never clamped: the display always shows the truth.
 MIN_HEIGHT_CM = 1            # 1 cm
 MAX_HEIGHT_CM = 10_000       # 100 m — VRChat's documented ceiling
-# With "Unlock upper limit" ticked. OSC carries the height as a 32-bit float
-# in metres; at 100 km its step is still under a centimetre, above that the
-# value starts to visibly quantise. VRChat or the world may cap it lower.
-UNLOCKED_MAX_HEIGHT_CM = 10_000_000   # 100 km
+# With "Unlock upper limit" ticked (Blise, 2026-11-11: "a bigger max height
+# where its 1000m but you need to enable that in the settings"; it was 100 km).
+# Ticking it also stretches the scale's top from 100 m to here. VRChat or the
+# world may still cap the height lower.
+UNLOCKED_MAX_HEIGHT_CM = 100_000      # 1000 m
 DEFAULT_HEIGHT_CM = 170
 
 # --- Network Timeouts ---
@@ -54,10 +55,14 @@ MENU_PREFAB_URL = f"{GITHUB_URL}/releases/latest/download/HeightShift-VRCFury.un
 MENU_GUIDE_URL = f"{GITHUB_URL}/blob/main/docs/VRCHAT_MENU.md"
 
 # --- Window Configuration ---
-# Compact first launch (his main display is 1707 x 912 logical px); after that
-# the window reopens where it was left (saveGeometry/restoreGeometry).
-DEFAULT_WINDOW_WIDTH = 1100
-DEFAULT_WINDOW_HEIGHT = 790
+# The first launch opens at the size Blise picked (2026-11-11: "make the
+# default app size the size i have the window now"): compact, the picture
+# and the Height panel side by side, Settings folded (open, they'd need a
+# wider window). After that the window reopens where it was left
+# (saveGeometry/restoreGeometry).
+DEFAULT_WINDOW_WIDTH = 608
+DEFAULT_WINDOW_HEIGHT = 778
+DEFAULT_SETTINGS_OPEN = False
 
 # --- Writing heights ---
 # After every send, reports from VRChat are held back this long and only the
@@ -91,6 +96,12 @@ DEFAULT_SEND_RATE = 30
 # --- Timed transition ---
 TRANSITION_MIN_STEP_CM = 0.05     # skip a send that would move less than 0.5 mm
 TRANSITION_MIN_DURATION_S = 1
+DEFAULT_TRANSITION_TARGET_CM = 200
+DEFAULT_TRANSITION_DURATION = 20   # with the unit below: grow over 20 seconds
+DEFAULT_TRANSITION_UNIT = "s"      # "s" | "min" | "h"
+# A first start comes with one saved height, so Load as target and the
+# scale's numbered mark show what they do; the other three slots are empty.
+DEFAULT_PROFILES = {"profile1": 140.0}
 TRANSITION_MAX_DURATION_S = 99 * 3600
 
 # --- Hold-to-grow hotkeys ---

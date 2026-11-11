@@ -46,15 +46,21 @@ A reworked window around one idea: pick a target, then go there instantly or ove
   Settings whether the current avatar has it. Grow / Shrink use the hold speed shared with the hotkeys.
 
 ### Changed
+- A first start comes with a 20-second timed transition (was 10 minutes) and one saved height, slot 1
+  at 140 cm; the hotkeys are on, at 5 cm per second.
 - A timed transition and a held key (hotkey or VRChat menu) send your height 30 times a second instead
   of 10, so growing looks smoother; Settings → Height → Updates per second offers 10 / 30 / 60.
 - A scale range that can't be (a top above the limit, a bottom above the top) is refused with a reason
   instead of being quietly clamped.
 - A saved height no longer sets your height when clicked in the window: it becomes the target (Go
   instant / Go timed then takes you there). The VRChat menu's Load still sets it at once.
-- The window opens wider (1100 px) so the Height panel fits beside the figure. In a narrower window the
-  figure shrinks first (to about 60 %); only when even that doesn't fit does the panel go under it, and
-  the window never gets narrower than its controls.
+- A first start opens a compact window (608 × 778) with the Height panel beside the figure and Settings
+  folded. In a narrower window the figure shrinks first (to about 60 %); only when even that doesn't
+  fit does the panel go under it, and the window never gets narrower than its controls.
+- Nudge now is three columns, −1 over +1, −10 over +10, −100 over +100: shrink in a blue frame, grow
+  in a red one.
+- "Unlock upper limit" goes up to 1000 m (was 100 km), and switching it on stretches the height
+  scale's top from 100 m to 1000 m (off: back to 100 m; a range narrowed by hand stays).
 
 ## [1.1] - 2026-11-10
 

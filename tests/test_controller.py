@@ -174,6 +174,10 @@ class ControllerTest(unittest.TestCase):
 
     def test_fresh_defaults_keys_on_cm_per_second_even_speed(self):
         self.make()
+        # a timed transition over 20 s, and one saved height: slot 1 = 140 cm
+        self.assertEqual(self.window.duration_spin.value(), 20)
+        self.assertEqual(self.window.unit_seg.value(), "s")
+        self.assertEqual(self.c.profiles, {"profile1": 140.0})
         self.assertTrue(self.c.hotkeys_on)                 # numpad + / − from the first start
         self.assertTrue(self.c.hotkeys_vrchat_only)
         self.assertEqual(self.c.hotkey_unit, SPEED_CM)
@@ -793,6 +797,19 @@ class ControllerTest(unittest.TestCase):
         self.c._transition_tick()
         self.c._on_adjust(-10.0)
         self.assertIsNone(self.c.transition)
+
+    def test_unlocking_stretches_the_scale_to_1000_m_and_back(self):
+        self.make()
+        self.assertEqual(self.c.slider_hi, 10_000.0)               # 100 m, the limit
+        self.c._on_unlock(True)
+        self.assertEqual(self.c.slider_hi, 100_000.0)              # 1000 m: the new limit
+        self.assertEqual(self.window.figure._hi, 100_000.0)
+        self.c._on_unlock(False)
+        self.assertEqual(self.c.slider_hi, 10_000.0)
+        # a range narrowed by hand stays as it is
+        self.c._on_slider_range(100.0, 300.0)
+        self.c._on_unlock(True)
+        self.assertEqual((self.c.slider_lo, self.c.slider_hi), (100.0, 300.0))
 
     def test_locking_mid_transition_stops_it(self):
         self.make(unlock_upper_limit=True, transition_target_cm=20_000,

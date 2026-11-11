@@ -51,7 +51,11 @@ from constants import (
     DEFAULT_HOTKEY_SPEED,
     DEFAULT_HOTKEY_SPEED_UNIT,
     DEFAULT_HOTKEYS_ENABLED,
+    DEFAULT_SETTINGS_OPEN,
     DEFAULT_STARTUP_HEIGHT_CM,
+    DEFAULT_TRANSITION_DURATION,
+    DEFAULT_TRANSITION_TARGET_CM,
+    DEFAULT_TRANSITION_UNIT,
     ECHO_HOLD_S,
     HOTKEY_SPEED_MAX_CM,
     HOTKEY_SPEED_MAX_PCT,
@@ -306,11 +310,12 @@ class HeightShiftController(QObject):
         w.set_startup(self.startup_mode, self.startup_height)
         w.set_ui_mode(theme.mode())
         w.set_text_scale(theme.text_scale())
-        w.set_settings_open(c.get_bool("settings_open", True))
+        w.set_settings_open(c.get_bool("settings_open", DEFAULT_SETTINGS_OPEN))
         w.set_transition_inputs(
-            min(top, c.get_number("transition_target_cm", 200, MIN_HEIGHT_CM, UNLOCKED_MAX_HEIGHT_CM)),
-            int(c.get_number("transition_duration", 10, 1, 999)),
-            c.get_choice("transition_unit", "min", ("s", "min", "h")),
+            min(top, c.get_number("transition_target_cm", DEFAULT_TRANSITION_TARGET_CM,
+                                  MIN_HEIGHT_CM, UNLOCKED_MAX_HEIGHT_CM)),
+            int(c.get_number("transition_duration", DEFAULT_TRANSITION_DURATION, 1, 999)),
+            c.get_choice("transition_unit", DEFAULT_TRANSITION_UNIT, ("s", "min", "h")),
             c.get_choice("transition_curve", CURVE_LINEAR, CURVES),
         )
         for i in range(1, PROFILE_COUNT + 1):
@@ -1133,6 +1138,10 @@ class HeightShiftController(QObject):
         if self.slider_hi > top:
             self.slider_hi = top
             self.slider_lo = min(self.slider_lo, top - 1)
+        elif self.unlocked and self.slider_hi >= MAX_HEIGHT_CM:
+            # the scale's top was at the old limit: it reaches the new one
+            # (a narrower range set by hand stays as it is)
+            self.slider_hi = top
         self.window.set_slider_range(self.slider_lo, self.slider_hi, top)
         target, _s, curve, value, unit = self._inputs()
         self.config.update_config({
