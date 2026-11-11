@@ -84,6 +84,8 @@ class VersionTest(unittest.TestCase):
         self.assertFalse(updater.is_newer("v2.0.30", "2.0.30-feature(3)"))
         self.assertFalse(updater.is_newer("junk", "2.0.1"))
 
+    # (these check the Windows exe: on Linux the AppImage is the asset, LinuxTest)
+    @mock.patch.object(updater.sys, "platform", "win32")
     def test_only_our_https_exe_is_the_asset(self):
         picked = updater.pick_exe_asset(release()["assets"])
         self.assertEqual(picked["name"], "HeightShift.exe")
@@ -138,6 +140,7 @@ class LinuxTest(unittest.TestCase):
 
 
 class CheckTest(unittest.TestCase):
+    @mock.patch.object(updater.sys, "platform", "win32")
     def test_newer_same_offline_junk(self):
         body = json.dumps(release()).encode()
         with serving({updater.LATEST_API: FakeResponse(body)}):

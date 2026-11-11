@@ -55,9 +55,9 @@ RELEASES: Tuple[Release, ...] = (
              "slots", icon="saved"),
         Item("One click to go",
              "Each saved height can go there at once (pink) or start the timed "
-             "transition (yellow) instead of only becoming the target. Right-click "
-             "it — an empty one too — or Settings → Height. A pink 1 cm slot is one "
-             "click from 1 cm.",
+             "transition (yellow) instead of only becoming the target: open Settings "
+             "and use the ▾ on it, or right-click it. A pink 1 cm slot is one click "
+             "from 1 cm.",
              "slot_actions", icon="load1"),
         Item("The same for the scale",
              "The button on top of the picture says what a click on the scale "

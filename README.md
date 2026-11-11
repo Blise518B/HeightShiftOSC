@@ -39,8 +39,8 @@ steps, hold a key, or use its own menu in VRChat.
 - **Or go with one click.** The button on top of the picture says what a click on the scale does:
   *Select height* (only pick, the default), *Go instant* (pink: go there at once) or *Go timed*
   (yellow: start the transition there); pressed, the other two unfold right there in the card. Each
-  saved height has the same choice — right-click it, or Settings → Height — and wears its colour: a
-  pink "1 cm" slot is one click from 1 cm.
+  saved height has the same choice — with Settings open, the ▾ on its right edge; or right-click it —
+  and wears its colour: a pink "1 cm" slot is one click from 1 cm.
 - **Timed transition** — a duration in seconds, minutes or hours and a curve: *Even speed* (same cm every
   second) or *Even growth* (same percentage every second, so 1 m → 50 m doesn't rush at the start). A
   graph shows the curve with a playhead; Pause / Resume / Stop. Sends 30 updates a second by default

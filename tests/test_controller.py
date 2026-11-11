@@ -590,14 +590,28 @@ class ControllerTest(unittest.TestCase):
         btn.click()                                                  # instant: back to 170
         self.assertEqual(self.osc.sent[-1], 170.0)
 
+    def test_the_slot_dropdowns_show_with_settings(self):
+        self.make(settings_open=False)
+        self.window.show()
+        kinds = self.window.slot_kind_btns
+        self.assertTrue(all(k.isHidden() for k in kinds.values()))
+        self.window.settings_btn.setChecked(True)
+        self.assertTrue(all(not k.isHidden() for k in kinds.values()))
+        self.assertEqual(self.window.profile_load_btns[1].property("joined"), "true")
+        self.window.settings_btn.setChecked(False)
+        self.assertTrue(all(k.isHidden() for k in kinds.values()))
+
     def test_a_slots_action_is_set_saved_and_shown(self):
         self.make(profiles={"profile1": 140.0})
-        self.window.slot_action_segs[1].changed.emit("instant")    # Settings
+        menu = self.window.slot_kind_btns[1].menu()                  # its ▾ dropdown
+        [a for a in menu.actions() if a.data() == "instant"][0].trigger()
         self.assertEqual(self.c.slot_actions[1], "instant")
         self.assertEqual(self.c.config.config["profile_actions"]["profile1"], "instant")
         self.assertEqual(self.window.profile_load_btns[1].property("kind"), "instant")
         self.window.slot_action_changed.emit(1, "timed")             # right-click menu
-        self.assertEqual(self.window.slot_action_segs[1].value(), "timed")
+        checked = [a.data() for a in menu.actions() if a.isChecked()]
+        self.assertEqual(checked, ["timed"])
+        self.assertEqual(self.window.slot_kind_btns[1].property("kind"), "timed")
         self.window.slot_action_changed.emit(1, "nonsense")          # ignored
         self.assertEqual(self.c.slot_actions[1], "timed")
 

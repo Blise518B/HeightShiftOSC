@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Releases are built on GitHub: tests on Windows and Linux, then the exe and the AppImage, then the
   release — published only if all of it passed (`release.bat`, `.github/workflows/release.yml`).
 
+### Changed
+- A saved height's action (select / go instant / go timed) is chosen with a small ▾ joined to its
+  right edge, shown while Settings are open — instead of a grid of buttons in Settings. Right-click
+  still works.
+
 ## [2.0.26] - 2026-11-11
 
 ### Added

@@ -179,7 +179,8 @@ class HeightShiftWindow(QMainWindow):
         self._ratio: Tuple[str, str] = ("", "")        # what the ratio line says
         self._saved: Dict[int, Optional[float]] = {}   # the saved heights (SAVED_SLOTS)
         self._slot_actions: Dict[int, str] = {}         # what a click on each does
-        self.slot_action_segs: Dict[int, Segmented] = {}
+        self.slot_kind_btns: Dict[int, QPushButton] = {}  # its ▾, while Settings are open
+        self._slot_menus: Dict[int, QMenu] = {}
         self._pick_ok: Dict[int, Tuple[bool, str]] = {}
         self._target_editable = True
         self._now_cm: Optional[float] = None          # what the comparison shows
@@ -489,7 +490,22 @@ class HeightShiftWindow(QMainWindow):
                 lambda _p, n=i: self._slot_menu(n))
             self.profile_values[i] = pick
             self.profile_load_btns[i] = pick
-            picks.addWidget(pick, (i - 1) // 3, (i - 1) % 3)     # three across, two rows
+            # while Settings are open, a ▾ joined to its right edge: what a
+            # click on it does (select / go instant / go timed)
+            kind = QPushButton("▾")
+            kind.setObjectName("SlotKind")
+            kind.setProperty("kind", "select")
+            kind.setCursor(Qt.PointingHandCursor)
+            kind.setToolTip(f"What a click on saved height {i} does")
+            kind.setMenu(self._slot_kind_menu(i))
+            kind.hide()
+            self.slot_kind_btns[i] = kind
+            cell = QWidget()
+            cell_lay = hbox(spacing=0)
+            cell.setLayout(cell_lay)
+            cell_lay.addWidget(pick, 1)
+            cell_lay.addWidget(kind)
+            picks.addWidget(cell, (i - 1) // 3, (i - 1) % 3)     # three across, two rows
         box_lay.addLayout(picks)
         lay.addWidget(label("SAVE CURRENT HEIGHT TO", "Micro"))
         saves = hbox(spacing=6)
@@ -625,25 +641,11 @@ class HeightShiftWindow(QMainWindow):
                           "sends your height: more is smoother. VRChat sets no limit; if your "
                           "own view jitters while you grow, try fewer."))
         g.addSpacing(4)
-        g.addWidget(label("Saved heights: what a click does", "FieldLabel"))
-        for i in range(1, SAVED_SLOTS + 1):
-            row = hbox(spacing=6)
-            row.addWidget(label(f"{i}", "FieldLabel"))
-            seg = Segmented([("select", "Select"), ("instant", "Go instant"),
-                             ("timed", "Go timed")])
-            seg.mark_kinds()
-            seg.set_tooltips({
-                "select": "A click loads it as the target; Go instant or Go timed takes you "
-                          "there",
-                "instant": "A click takes you there at once (pink)",
-                "timed": "A click starts the timed transition there (yellow)",
-            })
-            seg.set_value("select")
-            seg.changed.connect(lambda k, n=i: self.slot_action_changed.emit(n, k))
-            self.slot_action_segs[i] = seg
-            row.addWidget(seg, 1)
-            g.addLayout(row)
-        g.addWidget(hint("Also: right-click a saved height in the Height panel."))
+        g.addWidget(label("Saved heights", "FieldLabel"))
+        g.addWidget(hint("While Settings are open, the ▾ on each saved height sets what a "
+                         "click on it does: select it as the target, go there at once "
+                         "(pink) or start the timed transition (yellow). Right-click works "
+                         "too."))
         g.addSpacing(4)
         g.addWidget(label("Scale range", "FieldLabel"))
         rng = hbox(spacing=6)
@@ -923,6 +925,12 @@ class HeightShiftWindow(QMainWindow):
         # may grow or shrink by the panel's width for it (ui-style.md).
         was_visible = not self.settings_panel.isHidden()
         self.settings_panel.setVisible(show)
+        # the saved heights' ▾ (what a click does) are a setting: shown with them
+        for num, kind in self.slot_kind_btns.items():
+            kind.setVisible(show)
+            slot = self.profile_load_btns[num]
+            slot.setProperty("joined", "true" if show else "false")
+            restyle(slot)
         self._fit_work_column()
         if resize and self.isVisible() and was_visible != show:
             delta = self.settings_panel.width() if show else -self.settings_panel.width()
@@ -964,20 +972,28 @@ class HeightShiftWindow(QMainWindow):
         self.figure.set_click_action(mode)
         self.scale_mode_changed.emit(mode)
 
-    def _slot_menu(self, num: int) -> None:
-        """Right-click on a saved height: what a click on it does."""
+    SLOT_KINDS = (("select", "Select — load as the target"),
+                  ("instant", "Go instant — pink"), ("timed", "Go timed — yellow"))
+
+    def _slot_kind_menu(self, num: int) -> QMenu:
+        """What a click on saved height `num` does: its ▾'s dropdown, and
+        its right-click menu (the same one)."""
         menu = QMenu(self)
         group = QActionGroup(menu)
-        current = self._slot_actions.get(num, "select")
-        for key, text in (("select", "Select — load as the target"),
-                          ("instant", "Go instant — pink"), ("timed", "Go timed — yellow")):
+        for key, text in self.SLOT_KINDS:
             act = menu.addAction(text)
             act.setCheckable(True)
-            act.setChecked(key == current)
+            act.setData(key)
+            act.setChecked(key == "select")
             group.addAction(act)
             act.triggered.connect(lambda _c=False, k=key: self.slot_action_changed.emit(num, k))
+        self._slot_menus[num] = menu
+        return menu
+
+    def _slot_menu(self, num: int) -> None:
+        """Right-click on a saved height: the same menu as its ▾."""
         btn = self.profile_load_btns[num]
-        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+        self._slot_menus[num].exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _on_range_spin(self) -> None:
         if self._suppress:
@@ -1131,13 +1147,14 @@ class HeightShiftWindow(QMainWindow):
         """What a click on saved height `num` does: its colour, its menu and
         its row in Settings."""
         self._slot_actions[num] = action
-        btn = self.profile_load_btns.get(num)
-        if btn is not None:
-            btn.setProperty("kind", action)
-            restyle(btn)
-        seg = self.slot_action_segs.get(num)
-        if seg is not None:
-            seg.set_value(action)
+        for btn in (self.profile_load_btns.get(num), self.slot_kind_btns.get(num)):
+            if btn is not None:
+                btn.setProperty("kind", action)
+                restyle(btn)
+        menu = self._slot_menus.get(num)
+        if menu is not None:
+            for act in menu.actions():
+                act.setChecked(act.data() == action)
 
     def set_scale_mode(self, mode: str) -> None:
         self.mode_switch.set_mode(mode)
