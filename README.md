@@ -51,7 +51,7 @@ steps, hold a key, or use its own menu in VRChat.
 - **Unlock upper limit** — off: nothing above 100 m is ever sent. On: up to 1000 m, and the height
   scale's top goes up to 1000 m with it (off again: back to 100 m). VRChat or the world may still cap
   it lower.
-- Nudge now: ±1, ±10, ±100 cm, sent at once (−N in a blue frame over +N in a red one). Save current height to: stores your height in one of the four
+- Nudge now: ±1, ±10, ±100 cm, sent at once (+N in a red frame over −N in a blue one). Save current height to: stores your height in one of the four
   saved heights.
 - **Keep my height when I switch avatars** — resends the height you had *before* the change for about
   two seconds, and once more if VRChat didn't take it. Any manual change cancels it.

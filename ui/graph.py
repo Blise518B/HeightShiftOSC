@@ -55,7 +55,9 @@ class TransitionGraph(QWidget):
         fm = p.fontMetrics()
 
         outer = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        p.setPen(QPen(QColor(c["line"]), 1))
+        # the Timed transition card's cyan (theme.colors "timed"), like Go timed
+        accent, faded, rim = c["timed"], c["timed_mid"], c["timed_line"]
+        p.setPen(QPen(QColor(rim), 1))
         p.setBrush(QColor(c["well"]))
         p.drawRoundedRect(outer, 8, 8)
 
@@ -83,7 +85,7 @@ class TransitionGraph(QWidget):
         for i in range(1, samples + 1):
             full.lineTo(pt(i / samples))
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(c["green_mid"] if done > 0 else c["accent"]), 2.2,
+        p.setPen(QPen(QColor(faded if done > 0 else accent), 2.2,
                       Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         p.drawPath(full)
 
@@ -92,7 +94,7 @@ class TransitionGraph(QWidget):
             path = QPainterPath(pt(0.0))
             for i in range(1, n + 1):
                 path.lineTo(pt(done * i / n))
-            p.setPen(QPen(QColor(c["accent"]), 2.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(QColor(accent), 2.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             p.drawPath(path)
 
         # Labels in the text rows above and below the plot, each in the corner
@@ -106,14 +108,14 @@ class TransitionGraph(QWidget):
         left, right = Qt.AlignLeft | Qt.AlignVCenter, Qt.AlignRight | Qt.AlignVCenter
         p.setPen(QColor(c["muted"]))
         p.drawText(bottom_row if rising else top_row, left, format_height(self._start))
-        p.setPen(QColor(c["accent"]))
+        p.setPen(QColor(accent))
         p.drawText(top_row if rising else bottom_row, right, format_height(self._end))
         p.setPen(QColor(c["dim"]))
         p.drawText(bottom_row if rising else top_row, right, self._duration_text)
 
         if self._progress is not None:
             head = pt(done)
-            accent = QColor(c["accent"])
+            accent = QColor(accent)
             line = QColor(accent)
             line.setAlpha(110)
             p.setPen(QPen(line, 1))

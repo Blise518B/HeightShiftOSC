@@ -405,9 +405,9 @@ class HeightShiftWindow(QMainWindow):
         steps.setHorizontalSpacing(6)
         steps.setVerticalSpacing(6)
         self.step_btns = []
-        # -N over +N, smallest step first: each column one size, shrink in
-        # a blue frame above grow in a red one
-        for i, delta in enumerate((-1, -10, -100, 1, 10, 100)):
+        # +N over -N, smallest step first: each column one size, grow in a
+        # red frame above shrink in a blue one
+        for i, delta in enumerate((1, 10, 100, -1, -10, -100)):
             sign = "+" if delta > 0 else "−"      # a real minus sign
             btn = QPushButton(f"{sign}{abs(delta)}")
             btn.setObjectName("Step")
@@ -471,14 +471,16 @@ class HeightShiftWindow(QMainWindow):
         go = QGridLayout()
         go.setHorizontalSpacing(8)
         go.setVerticalSpacing(6)
+        # Each its own colour: Go instant the Height panel's green (it acts
+        # right here), Go timed cyan like the Timed transition card it runs
         self.go_instant_btn = QPushButton("Go instant")
-        self.go_instant_btn.setObjectName("GoInstant")
+        self.go_instant_btn.setObjectName("Primary")
         self.go_instant_btn.clicked.connect(self.go_instant_clicked.emit)
         self.play_btn = QPushButton("▶  Go timed")
-        self.play_btn.setObjectName("Primary")
+        self.play_btn.setObjectName("GoTimed")
         self.play_btn.clicked.connect(self.play_clicked.emit)
         self.pause_btn = QPushButton("‖  Pause")
-        self.pause_btn.setObjectName("Primary")      # never shown together with Go timed
+        self.pause_btn.setObjectName("GoTimed")      # never shown together with Go timed
         self.pause_btn.clicked.connect(self.pause_clicked.emit)
         self.stop_btn = QPushButton("■  Stop")
         self.stop_btn.setToolTip("Stop here: the avatar keeps the height it has reached")
@@ -499,6 +501,7 @@ class HeightShiftWindow(QMainWindow):
         """Go timed's timing: how long, which curve, the graph of it, and
         what it is doing."""
         frame, lay = card("Timed transition")
+        frame.setProperty("hue", "timed")      # Go timed's cyan: frame, bar, choices, graph
         self.transition_card = frame
 
         top = hbox(spacing=12)

@@ -89,6 +89,15 @@ QLabel#MenuGuideLine { color: %(muted)s; font-size: 12px; }
 QLabel#Chip { min-height: 20px; max-height: 20px; }
 
 QPushButton#Step { padding: 6px 10px; min-width: 50px; }
+QPushButton#GoTimed { background: %(timed)s; border-color: %(timed)s; color: %(ink)s; font-weight: 650; }
+QPushButton#GoTimed:hover { background: %(timed_hover)s; border-color: %(timed_hover)s; color: %(ink)s; }
+QPushButton#GoTimed:disabled { background: transparent; border-color: %(timed_mid)s; color: %(dim)s; }
+QFrame#Card[hue="timed"] { border-color: %(timed_line)s; }
+QFrame#Card[hue="timed"] QLabel#SectionTitle { background: %(timed_bar)s; color: %(timed_bar_text)s; }
+QFrame#Card[hue="timed"] QPushButton, QFrame#Card[hue="timed"] QAbstractSpinBox { border-color: %(timed_line)s; }
+QFrame#Card[hue="timed"] QPushButton:hover { background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
+QFrame#Card[hue="timed"] QPushButton:checked { background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
+QFrame#Card[hue="timed"] QAbstractSpinBox:focus { border-color: %(timed)s; }
 QPushButton#Step[sign="plus"] { border-color: %(plus)s; }
 QPushButton#Step[sign="plus"]:hover { background: %(plus_tint)s; border-color: %(plus)s; color: %(plus)s; }
 QPushButton#Step[sign="minus"] { border-color: %(minus)s; }
@@ -115,6 +124,8 @@ QAbstractSpinBox {
     min-height: 20px; max-height: 20px;
 }
 QAbstractSpinBox:focus { border-color: %(accent)s; }
+QFrame#Card[hue="timed"] QAbstractSpinBox { border: 1px solid %(timed_line)s; }
+QFrame#Card[hue="timed"] QAbstractSpinBox:focus { border: 1px solid %(timed)s; }
 QAbstractSpinBox:disabled, QPushButton:disabled { color: %(dim)s; }
 QPushButton#Primary:disabled { background: transparent; border-color: %(green_mid)s; color: %(dim)s; }
 QPushButton:disabled { border-color: %(green_mid)s; }
@@ -170,6 +181,15 @@ def colors() -> Dict[str, str]:
     # 2026-11-11 — an exception to red = errors only, see ui-style.md)
     v["plus"], v["plus_mid"], v["plus_tint"] = T.PALETTE["red"]
     v["minus"], v["minus_mid"], v["minus_tint"] = T.PALETTE["blue"]
+    # The timed transition's cyan (design-518.md: running, live): Go timed,
+    # and its card's frame, bar, choices and graph, so they read as one thing.
+    # Neon gets the filled bar tones VRCParameterRelay uses for cyan.
+    vib, mid, tint = T.PALETTE["cyan"]
+    v["timed"], v["timed_mid"], v["timed_tint"], v["timed_hover"] = vib, mid, tint, "#8be6f7"
+    if _mode == "neon":
+        v["timed_bar"], v["timed_bar_text"], v["timed_line"] = "#15808f", v["txt"], "#2e93a3"
+    else:
+        v["timed_bar"], v["timed_bar_text"], v["timed_line"] = tint, vib, mid
     # the updater's orange (design-518.md: updaters, nags, pending installs)
     v["upd"], v["upd_mid"], v["upd_tint"] = T.PALETTE["orange"]
     # the size comparison's target shadow (ui/figure.py), for its colour key
