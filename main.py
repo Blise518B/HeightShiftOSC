@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -74,6 +75,8 @@ def main() -> int:
     window.show()
     controller.start()
     controller.check_for_updates(__version__)      # GitHub, on a worker thread
+    # after an update: what changed, once (its update offer waits for it)
+    QTimer.singleShot(1200, lambda: controller.whats_new_on_launch(__version__))
     try:
         return app.exec()
     finally:

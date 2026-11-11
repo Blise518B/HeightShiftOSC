@@ -67,6 +67,7 @@ from .figure import FIT_MIN, SizeComparison, ratio_text
 from .graph import GRAPH_HEIGHT, TransitionGraph
 from .theme import TEXT_SCALES, colors, resource_path, text_scale
 from .update_dialog import UpdateDialog
+from .whats_new import WhatsNewDialog
 from .widgets import (
     CtrlWheelZoom,
     KeyCaptureButton,
@@ -91,6 +92,18 @@ DURATION_UNITS = (("s", "sec", 1), ("min", "min", 60), ("h", "hours", 3600))
 
 MENU_HUE = "amber"                      # orange is the updater's (design-518.md)
 UPDATE_HUE = "orange"
+# Where What's new's "Take me there" leads: (in Settings?, the widget's
+# attribute). whats_new.py names them; a test checks every name is here.
+PLACES = {
+    "slots": (False, "slots_box"),
+    "slot_actions": (False, "slots_box"),
+    "scale_mode": (False, "mode_switch"),
+    "settings_height": (True, "height_group"),
+    "updates": (True, "updates_group"),
+    "menu_guide": (True, "menu_group"),
+}
+# A revealed place is lit, goes out for a blink, and is lit again: (ms, lit)
+SPOT_BEATS = ((0, True), (450, False), (700, True), (2400, False))
 # The VRChat menu, as Settings' mini guide shows it: (depth, icons, name,
 # what it does). The icons are the menu's own (assets/menu/, written by
 # tools/make_menu_icons.py from docs/unity/icons/).
@@ -150,6 +163,7 @@ class HeightShiftWindow(QMainWindow):
     check_updates_clicked = Signal()          # Settings → Check for updates now
     update_install_clicked = Signal()         # the update window's Install now
     update_skipped = Signal(str)              # "don't remind me about <tag>"
+    whats_new_clicked = Signal()              # Settings → Updates → What's new
 
     SETTINGS_WIDTH = 360
 
@@ -453,7 +467,13 @@ class HeightShiftWindow(QMainWindow):
         lay.addWidget(self.target_note)
 
         lay.addSpacing(4)
-        lay.addWidget(label("LOAD AS TARGET", "Micro"))
+        self.slots_box = QFrame()
+        self.slots_box.setObjectName("SpotBox")       # What's new can light it up
+        box_lay = vbox(spacing=2)
+        box_lay.setContentsMargins(3, 3, 3, 3)
+        self.slots_box.setLayout(box_lay)
+        lay.addWidget(self.slots_box)
+        box_lay.addWidget(label("LOAD AS TARGET", "Micro"))
         picks = QGridLayout()
         picks.setHorizontalSpacing(6)
         picks.setVerticalSpacing(6)
@@ -470,7 +490,7 @@ class HeightShiftWindow(QMainWindow):
             self.profile_values[i] = pick
             self.profile_load_btns[i] = pick
             picks.addWidget(pick, (i - 1) // 3, (i - 1) % 3)     # three across, two rows
-        lay.addLayout(picks)
+        box_lay.addLayout(picks)
         lay.addWidget(label("SAVE CURRENT HEIGHT TO", "Micro"))
         saves = hbox(spacing=6)
         for i in range(1, SAVED_SLOTS + 1):
@@ -574,11 +594,13 @@ class HeightShiftWindow(QMainWindow):
         inner.setLayout(lay)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
+        self.settings_scroll = scroll
 
         lay.addWidget(label("Settings", "PanelTitle"))
 
         # --- Height (green) -------------------------------------------
         frame, g = group("Height", "green")
+        self.height_group = frame
         self.preserve_cb = QCheckBox("Keep my height when I switch avatars")
         self.preserve_cb.toggled.connect(self.preserve_toggled.emit)
         g.addWidget(self.preserve_cb)
@@ -775,12 +797,17 @@ class HeightShiftWindow(QMainWindow):
 
         # --- Updates (orange: updaters, design-518.md) ---------------------
         frame, g = group("Updates", UPDATE_HUE)
+        self.updates_group = frame
         self.updates_hint = hint("")
         g.addWidget(self.updates_hint)
         row = hbox(spacing=8)
         self.check_updates_btn = QPushButton("Check for updates now")
         self.check_updates_btn.clicked.connect(self.check_updates_clicked.emit)
         row.addWidget(self.check_updates_btn)
+        self.whats_new_btn = QPushButton("What's new")
+        self.whats_new_btn.setToolTip("What changed in this version and the ones before it")
+        self.whats_new_btn.clicked.connect(self.whats_new_clicked.emit)
+        row.addWidget(self.whats_new_btn)
         row.addStretch(1)
         g.addLayout(row)
         self.update_result = label("", "PortsLine", wrap=True)
@@ -802,6 +829,7 @@ class HeightShiftWindow(QMainWindow):
         has it. Says whether it does, where to get it, and what each of its
         buttons does, with the menu's own icons."""
         frame, g = group("VRChat menu", MENU_HUE)
+        self.menu_group = frame
         self.menu_status = label("", "PortsLine", wrap=True)
         g.addWidget(self.menu_status)
         self.menu_links = label("", "MenuLinks")
@@ -1289,6 +1317,10 @@ class HeightShiftWindow(QMainWindow):
 
     def show_update_dialog(self, info: dict, can_install: bool) -> UpdateDialog:
         """The update window (one at a time), window-modal, not blocking."""
+        news = getattr(self, "whats_new_dialog", None)
+        if news is not None and news.isVisible():
+            self._update_waiting = (info, can_install)    # after What's new closes
+            return None
         old = getattr(self, "update_dialog", None)
         if old is not None and old.isVisible():
             old.raise_()
@@ -1300,6 +1332,52 @@ class HeightShiftWindow(QMainWindow):
         self.update_dialog = dlg
         dlg.open()
         return dlg
+
+    # --- What's new -----------------------------------------------------
+
+    def show_whats_new(self, releases) -> None:
+        """The What's new window for `releases` ([(version, items), ...],
+        newest first); nothing when there is none or one is open already."""
+        releases = [(v, items) for v, items in (releases or []) if items]
+        old = getattr(self, "whats_new_dialog", None)
+        if not releases or (old is not None and old.isVisible()):
+            return
+        dlg = WhatsNewDialog(self, releases, self.can_reveal)
+        dlg.reveal_requested.connect(self.reveal)
+        dlg.finished.connect(self._after_whats_new)
+        self.whats_new_dialog = dlg
+        dlg.open()
+
+    def _after_whats_new(self, _result) -> None:
+        waiting, self._update_waiting = getattr(self, "_update_waiting", None), None
+        if waiting:
+            QTimer.singleShot(SPOT_BEATS[-1][0] + 400, lambda: self.show_update_dialog(*waiting))
+
+    def can_reveal(self, place: str) -> bool:
+        in_settings, attr = PLACES.get(place, (False, ""))
+        return bool(attr) and getattr(self, attr, None) is not None
+
+    def reveal(self, place: str) -> bool:
+        """Show a place What's new talks about and light it up for a moment:
+        Settings open and scrolled to it when it lives there."""
+        if not self.can_reveal(place):
+            return False
+        in_settings, attr = PLACES[place]
+        target = getattr(self, attr)
+        if attr == "mode_switch":
+            target = self.mode_switch.current
+        if in_settings:
+            if not self.settings_btn.isChecked():
+                self.settings_btn.setChecked(True)
+            QTimer.singleShot(30, lambda: self.settings_scroll.ensureWidgetVisible(target, 0, 12))
+        for at_ms, lit in SPOT_BEATS:
+            QTimer.singleShot(at_ms + 30, lambda lit=lit: self._set_spot(target, lit))
+        return True
+
+    @staticmethod
+    def _set_spot(widget: QWidget, on: bool) -> None:
+        widget.setProperty("spot", "true" if on else "false")
+        restyle(widget)
 
     def set_update_progress(self, done: int, total: int) -> None:
         dlg = getattr(self, "update_dialog", None)

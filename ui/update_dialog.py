@@ -105,6 +105,7 @@ class UpdateDialog(QDialog):
         self.set_busy(True)
         self.status.setText("Downloading…")
         self.status.setVisible(True)
+        self.adjustSize()                      # grow for the status line, never squeeze
         self.install_clicked.emit()
 
     # --- setters (controller -> view) ---------------------------------------
@@ -129,5 +130,6 @@ class UpdateDialog(QDialog):
         self.set_busy(False)
         self.status.setText(text)
         self.status.setVisible(True)
+        self.adjustSize()                      # grow for the status line, never squeeze
         if self.install_btn is not None:
             self.install_btn.setText("Try again")

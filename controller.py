@@ -38,6 +38,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
 import updater
+import whats_new
 from config_manager import PROFILE_COUNT, ConfigManager
 from console_window import ConsoleWindow
 from constants import (
@@ -304,6 +305,7 @@ class HeightShiftController(QObject):
         w.check_updates_clicked.connect(lambda: self.check_for_updates(manual=True))
         w.update_install_clicked.connect(self._on_update_install)
         w.update_skipped.connect(self._on_update_skipped)
+        w.whats_new_clicked.connect(self._on_whats_new)
         self._sig_update_checked.connect(self._on_update_checked)
         self._sig_update_progress.connect(w.set_update_progress)
         self._sig_update_downloaded.connect(self._on_update_downloaded)
@@ -399,6 +401,33 @@ class HeightShiftController(QObject):
     def _on_update_skipped(self, tag: str) -> None:
         self.config.update_config({"skip_update_version": tag})
         self.window.set_update_available(None)
+
+    # ------------------------------------------------------------------
+    # What's new (whats_new.py; OscGoesPurrr's design)
+    # ------------------------------------------------------------------
+
+    def whats_new_on_launch(self, version: str) -> bool:
+        """After an update: the notes of every release this install hasn't
+        seen, once. A first install starts "up to date" without a window.
+        True when the window was opened."""
+        self._app_version = getattr(self, "_app_version", None) or version
+        seen = self.config.get_str(whats_new.SEEN_KEY)
+        fresh = bool(getattr(self.config, "created_fresh", False))
+        releases = [] if fresh else whats_new.unseen_releases(seen, version)
+        newest = whats_new.releases_for(version)
+        if newest and newest[0].version != seen:
+            self.config.update_config({whats_new.SEEN_KEY: newest[0].version})
+        if not releases:
+            return False
+        self.window.show_whats_new(whats_new.as_plain(releases))
+        return True
+
+    def _on_whats_new(self) -> None:
+        """Settings → Updates → What's new: every release's notes this
+        build has."""
+        version = getattr(self, "_app_version", None)
+        releases = whats_new.releases_for(version) if version else list(whats_new.RELEASES)
+        self.window.show_whats_new(whats_new.as_plain(releases))
 
     def _on_update_install(self) -> None:
         asset = (getattr(self, "_update_info", None) or {}).get("asset")

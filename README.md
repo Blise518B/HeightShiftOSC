@@ -73,6 +73,9 @@ steps, hold a key, or use its own menu in VRChat.
   it, checks its size and SHA-256, swaps the exe and restarts (your heights and settings stay). *Later*
   is the default, so a stray Enter never installs; *Don't remind me* quiets that version. Settings →
   Updates checks by hand. A copy run from source can't replace itself and gets the release page.
+- **What's new** — after an update, once: what changed, one page per release, with *Take me there* to
+  where a change lives (it lights up). Never on a first install; Settings → Updates → *What's new*
+  shows it again.
 - The status bar's *HeightShift* opens its GitHub page, *Blise518B* his GitHub profile.
 
 ## Running
@@ -120,7 +123,8 @@ Keys: `profiles` (`profile1`–`profile4`, cm) · `startup_mode` (`query` = read
 | 4 Alt>}`) · `hotkey_speed` / `hotkey_speed_unit` (`pct` / `cm`) · `hotkeys_vrchat_only` ·
 `osc_router_518` · `hide_console` · `ui_mode` (`neon` / `midnight`) · `text_scale` · `settings_open` ·
 `window_geometry_qt` · `skip_update_version` (the release tag set to "don't remind me") ·
-`profile_actions` (`{"profile1": "select" | "instant" | "timed"}`) · `scale_mode` (the same three).
+`profile_actions` (`{"profile1": "select" | "instant" | "timed"}`) · `scale_mode` (the same three) ·
+`whats_new_seen_version` (the newest notes shown).
 
 ## OSC
 
@@ -156,6 +160,7 @@ python -m unittest discover -s tests
 | `assets/` | the figure: OscGoesPurrr's Suits cat girl (`figure.png`, same author, MIT) and her silhouette (`figure_fill.png`, made by `tools/make_figure_assets.py`) |
 | `docs/unity/`, `tools/make_menu_icons.py`, `tools/build_vrcf_prefab.py` | the VRChat menu: its VRCFury package, its icons, and how both are built (docs/VRCHAT_MENU.md) |
 | `config_manager.py`, `console_window.py`, `single_instance.py` | settings file, the run.bat console, one instance |
+| `whats_new.py`, `ui/whats_new.py` | What's new: the notes per release and the rule for when they show (pure data); its window. Add a release at the top of `RELEASES` |
 | `updater.py`, `ui/update_dialog.py` | the self-update (VRCParameterRelay's): ask GitHub, verified download, the swap helper; the update window (a pure view) |
 | `assets/menu/` | the VRChat menu's icons for Settings' mini guide (96 px copies, `tools/make_menu_icons.py --app-only`) |
 | `docs/index.html`, `docs/site/` | the website (GitHub Pages from `/docs` on `main`): the download, what it does, the VRChat menu; `site/tokens.css` is a verbatim copy of `_hub\design\tokens.css`, `site/app.png` the app's default window |

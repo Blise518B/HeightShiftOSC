@@ -98,6 +98,8 @@ class ConfigManager:
     def __init__(self, config_file: str):
         self.config_file: str = config_file
         self._lock = threading.Lock()
+        # a first install, not an update: What's new stays quiet for it
+        self.created_fresh: bool = not os.path.exists(config_file)
         self.config: Dict[str, Any] = self.load_config()
 
     # ------------------------------------------------------------------

@@ -115,6 +115,13 @@ QPushButton#ModeOption[kind="instant"] { border-color: %(instant)s; color: %(ins
 QPushButton#ModeOption[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
 QPushButton#ModeOption[kind="instant"]:hover { background: %(instant_tint)s; }
 QPushButton#ModeOption[kind="timed"]:hover { background: %(timed_tint)s; }
+/* What's new, and the places it lights up */
+QLabel#NewsHead { color: %(accent)s; font-size: 16px; font-weight: 700; }
+QLabel#NewsTitle { color: %(txt)s; font-size: 13px; font-weight: 700; }
+QLabel#NewsText { color: %(muted)s; font-size: 12px; }
+QFrame#SpotBox { border: 2px solid transparent; border-radius: 8px; }
+QFrame#SpotBox[spot="true"], QFrame#Group[spot="true"] { border: 2px solid %(txt)s; }
+QPushButton#ModeCurrent[spot="true"] { border: 2px solid %(txt)s; }
 QPushButton#GoInstant { background: %(instant)s; border-color: %(instant)s; color: %(ink)s; font-weight: 650; }
 QPushButton#GoInstant:hover { background: %(instant)s; border-color: %(txt)s; color: %(ink)s; }
 QPushButton#GoInstant:disabled { background: transparent; border-color: %(instant_mid)s; color: %(dim)s; }

@@ -5,9 +5,12 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.24] - 2026-11-11
+## [2.0.25] - 2026-11-11
 
 ### Added
+- What's new (as in OscGoesPurrr): after an update the app shows once what changed — one page per
+  release, Back / Next when several were skipped, "Take me there" to the place a change lives, which
+  lights up for a moment. A first install stays quiet. Settings → Updates → What's new shows it again.
 - Six saved heights (were four), three across in a wider Height panel.
 - What a click does, per saved height: *Select* (load it as the target, as before), *Go instant*
   (pink: go there at once) or *Go timed* (yellow: start the timed transition there). Set it by
@@ -16,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default), *Go instant* or *Go timed*; pressed, the other two unfold inside the card.
 
 ### Fixed
+- The update window grows for its "Downloading…" line instead of squeezing the text above it.
 - A nudge past a limit stops at it instead of doing nothing: −100 at 85 cm goes to 1 cm, as in 1.x.
 - −1 at 2 cm reaches 1 cm: VRChat's 32-bit 2 cm is 1.99999995 cm, and 1 cm minus a hair was refused.
 
