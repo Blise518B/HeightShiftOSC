@@ -1,4 +1,5 @@
-PySide6>=6.5.0
+# Pinned to the tested Qt: 6.12.0 broke styled number fields (1 px text field, fixed in ui/widgets.py no_buttons too). Raise only after a full test + a look.
+PySide6==6.11.1
 python-osc>=1.8.0
 zeroconf>=0.130
 requests>=2.31

@@ -130,6 +130,12 @@ QAbstractSpinBox {
     min-height: 20px; max-height: 20px;
 }
 QAbstractSpinBox:focus { border-color: %(accent)s; }
+/* number fields keep their step arrows but show none (ui/widgets.py
+   no_buttons: NoButtons breaks the text field under Qt 6.12) */
+QAbstractSpinBox[arrows="hidden"]::up-button, QAbstractSpinBox[arrows="hidden"]::down-button {
+    width: 0px; border: none; image: none; }
+QAbstractSpinBox[arrows="hidden"]::up-arrow, QAbstractSpinBox[arrows="hidden"]::down-arrow {
+    image: none; width: 0px; height: 0px; }
 QFrame#Card[hue="timed"] QAbstractSpinBox { border: 1px solid %(timed_mid)s; }
 QFrame#Card[hue="timed"] QAbstractSpinBox:focus { border: 1px solid %(timed)s; }
 QAbstractSpinBox:disabled, QPushButton:disabled { color: %(dim)s; }

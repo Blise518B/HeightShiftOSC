@@ -5,6 +5,15 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.23] - 2026-11-11
+
+### Fixed
+- The number fields (the target, the transition's time, the scale range, the hold speed, the fixed
+  height) were empty and could not be typed in. 2.0.20 was built with Qt 6.12, which shrinks the text
+  part of a styled number field without step arrows to 1 px. The fields now keep hidden arrows, the
+  build is pinned to the tested Qt (PySide6 6.11.1), and a test checks every field under the real
+  stylesheet.
+
 ## [2.0] - 2026-11-11
 
 A reworked window around one idea: pick a target, then go there instantly or over time.

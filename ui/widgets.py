@@ -130,7 +130,15 @@ def group(title: str, hue: str) -> Tuple[QFrame, QVBoxLayout]:
 
 
 def no_buttons(spin: QAbstractSpinBox) -> QAbstractSpinBox:
-    spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+    """A number field without step arrows.
+
+    Not QAbstractSpinBox.NoButtons: under Qt 6.12 a spin box with NoButtons
+    and a stylesheet border or padding gets a 1 px wide text field — no
+    number shown, nothing can be typed (HeightShift 2.0.20, built with
+    PySide6 6.12.0). So the arrows stay, and the stylesheet folds them to
+    nothing (QAbstractSpinBox[arrows="hidden"] in ui/theme.py)."""
+    spin.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
+    spin.setProperty("arrows", "hidden")
     spin.setKeyboardTracking(False)   # commit on Enter / leaving the field
     spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     return spin
