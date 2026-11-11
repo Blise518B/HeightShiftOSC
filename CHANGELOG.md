@@ -41,6 +41,8 @@ A reworked window around one idea: pick a target, then go there instantly or ove
 - Settings end with a mini guide to the VRChat menu: each of its icons and what it does, in the menu's
   order, with links to the VRCFury prefab (the newest release's) and the setup guide.
 - The status bar's names are links: HeightShift to its GitHub page, Blise518B to his GitHub profile.
+- A website, https://blise518b.github.io/HeightShiftOSC/: the download, what it does and the VRChat menu,
+  on one short page.
 - VRChat menu: a VRCFury prefab (docs/VRCHAT_MENU.md) with Grow / Shrink while held, Play / Pause,
   Stop, and Load / Save for the four saved heights. Unsynced parameters, no animator; the app says in
   Settings whether the current avatar has it. Grow / Shrink use the hold speed shared with the hotkeys.

@@ -4,6 +4,9 @@ A desktop app that sets your avatar's height in VRChat over OSC. Pick a target �
 scale, type it, or load a saved height — then go there instantly or over a chosen time. Or nudge in
 steps, hold a key, or use its own menu in VRChat.
 
+**Website and download:** <https://blise518b.github.io/HeightShiftOSC/> ·
+[HeightShift.exe](https://github.com/Blise518B/HeightShiftOSC/releases/latest/download/HeightShift.exe)
+
 ![HeightShift](docs/screenshot.png)
 
 ## Features
@@ -148,6 +151,7 @@ python -m unittest discover -s tests
 | `config_manager.py`, `console_window.py`, `single_instance.py` | settings file, the run.bat console, one instance |
 | `updater.py`, `ui/update_dialog.py` | the self-update (VRCParameterRelay's): ask GitHub, verified download, the swap helper; the update window (a pure view) |
 | `assets/menu/` | the VRChat menu's icons for Settings' mini guide (96 px copies, `tools/make_menu_icons.py --app-only`) |
+| `docs/index.html`, `docs/site/` | the website (GitHub Pages from `/docs` on `main`): the download, what it does, the VRChat menu; `site/tokens.css` is a verbatim copy of `_hub\design\tokens.css`, `site/app.png` the app's default window |
 
 The OSC layer is transport only; whether a height VRChat reports can be trusted is decided in
 `height_logic.ReportGate`. Every report carries the time it was *seen* (an OSC packet: when it arrived;
