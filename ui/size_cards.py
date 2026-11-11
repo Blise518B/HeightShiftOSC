@@ -585,7 +585,7 @@ class ParamPicker(QFrame):
         close = QPushButton("✕  Close")
         close.setObjectName("PickerClose")
         close.setCursor(Qt.PointingHandCursor)
-        close.setToolTip("Put the list away (it comes back with Settings, or Pick… on a card)")
+        close.setToolTip("Put the list away (Pick… on a card opens it again)")
         close.clicked.connect(self.closed.emit)
         head.addWidget(close)
         lay.addLayout(head)

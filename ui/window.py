@@ -217,11 +217,11 @@ class HeightShiftWindow(QMainWindow):
         self.profile_load_btns: Dict[int, QPushButton] = {}
         self.capturing_key = False      # a hotkey button waits for a key press
         self._picking: str = ""         # the card a click in the parameter list goes to
-        # the parameter list shows while Settings are open or while a card
-        # asks for a parameter (Blise: not "on" otherwise); its Close puts it
-        # away until Settings open again
+        # the parameter list shows only while something asks for a parameter
+        # (Pick… on a card, + Parameter): Blise, "Settings should just open
+        # settings and the parameters will open when I click on something
+        # that needs to pick parameters"
         self._pick_request = False
-        self._picker_dismissed = False
         self._top_cm = float(MAX_HEIGHT_CM)
 
         # pace(): what a stream changes, drawn at the window's own pace
@@ -286,7 +286,7 @@ class HeightShiftWindow(QMainWindow):
         # the avatar's parameters, opened from a card: between the work and Settings
         self.picker = ParamPicker()
         self.picker.picked.connect(self._on_param_picked)
-        self.picker.closed.connect(self._on_picker_close)
+        self.picker.closed.connect(self.close_picker)
         self.picker.refresh.connect(self.param_picker_refresh.emit)
         self.picker.hide()
         middle.addWidget(self.picker)
@@ -1176,9 +1176,6 @@ class HeightShiftWindow(QMainWindow):
             delta = self.settings_panel.width() if show else -self.settings_panel.width()
             self.resize(max(self.minimumSizeHint().width(), before + delta), self.height())
             self.ensure_on_screen()
-        if show != was_visible:
-            self._picker_dismissed = False        # opening Settings brings the list back
-        self._sync_picker(resize)
 
     def _step_text_scale(self, direction: int) -> None:
         current = text_scale()
@@ -1483,14 +1480,8 @@ class HeightShiftWindow(QMainWindow):
         self.centralWidget().layout().activate()
         self.layout().activate()
 
-    def _picker_wanted(self) -> bool:
-        """With Settings open (unless Closed since), or while a card asks
-        for a parameter — never otherwise."""
-        settings = not self.settings_panel.isHidden()
-        return self._pick_request or (settings and not self._picker_dismissed)
-
     def _sync_picker(self, resize: bool = True) -> None:
-        show = self._picker_wanted()
+        show = self._pick_request             # only while something asks for one
         if show == self.picker_open:
             return
         if show:
@@ -1518,16 +1509,11 @@ class HeightShiftWindow(QMainWindow):
         self.picker.filter.selectAll()
 
     def close_picker(self) -> None:
-        """Done picking. The list stays while Settings are open."""
+        """Done picking (a parameter clicked, or the list's Close)."""
         self._picking = ""
         self._pick_request = False
         self._show_picking()
         self._sync_picker()
-
-    def _on_picker_close(self) -> None:
-        """The list's own Close: away until Settings open again."""
-        self._picker_dismissed = True
-        self.close_picker()
 
     def _show_picking(self) -> None:
         for pid, card_ in self.size_board.cards.items():

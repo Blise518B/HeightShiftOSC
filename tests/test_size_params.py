@@ -331,34 +331,32 @@ class SizeParamsTest(unittest.TestCase):
         self.assertEqual([p["param"] for p in self.c.size_params], ["a"])
         self.window.close_picker()
 
-    # --- when the list shows (Blise: only with Settings, or while picking) ------
+    # --- when the list shows (Blise: only when something needs a parameter) ----
     def test_the_list_is_closed_at_first(self):
         self.make()
         self.assertFalse(self.window.picker_open)
 
-    def test_the_list_shows_with_settings_and_goes_with_them(self):
-        self.make()
+    def test_settings_dont_open_the_list(self):
+        self.make(settings_open=True)
+        self.assertFalse(self.window.picker_open)
         self.window.settings_btn.click()
-        self.assertTrue(self.window.picker_open)
         self.window.settings_btn.click()
         self.assertFalse(self.window.picker_open)
 
-    def test_a_pick_while_settings_are_open_keeps_the_list(self):
+    def test_pick_opens_it_and_a_pick_closes_it_also_with_settings_open(self):
         self.make(size_params=[dict(GROW_CARD)], settings_open=True)
         pid = self.c.size_params[0]["id"]
+        self.window.size_board.cards[pid].name.pick_btn.click()      # Pick… on the card
         self.assertTrue(self.window.picker_open)
-        self.window.open_picker(pid)
         self.window._on_param_picked("Other", "Bool")
         self.assertEqual(self.c.size_params[0]["param"], "Other")
-        self.assertTrue(self.window.picker_open)           # Settings are still open
-
-    def test_close_puts_it_away_until_settings_open_again(self):
-        self.make(settings_open=True)
-        self.window._on_picker_close()
         self.assertFalse(self.window.picker_open)
-        self.window.settings_btn.click()                   # Settings shut …
-        self.window.settings_btn.click()                   # … and opened again
-        self.assertTrue(self.window.picker_open)
+
+    def test_close_puts_it_away(self):
+        self.make(size_params=[dict(GROW_CARD)])
+        self.window.open_picker(self.c.size_params[0]["id"])
+        self.window.picker.closed.emit()                  # its Close
+        self.assertFalse(self.window.picker_open)
 
     def test_the_filter_is_kept_while_the_app_runs(self):
         self.make(size_params=[dict(GROW_CARD)])
