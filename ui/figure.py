@@ -18,8 +18,9 @@ window) takes you there. On it:
   * a soft pointer at the target — drag it, click or drag anywhere along the
     scale, or pull either head up or down, to pick the target (a light line
     with the height follows the mouse over the scale first);
-  * the four saved heights as numbered marks — click one to load it as the
-    target; a dragged target snaps onto a mark it comes close to;
+  * the six saved heights as numbered marks — click one to load it as the
+    target (or to go there, as its action says); a dragged target snaps
+    onto a mark it comes close to;
   * its two ends: click MIN's or MAX's number to type a new one (Enter
     keeps it, Esc doesn't; a range that can't be is refused with why).
 In a narrow window the whole stage shrinks (set_fit, down to FIT_MIN) before
@@ -508,8 +509,17 @@ class SizeComparison(QWidget):
         bottom, top = self._scale_ends()
         return self.cm_at(min(bottom, max(top, y)))
 
+    def set_click_action(self, action: str) -> None:
+        """What a pick on the scale leads to (the window's mode switch) — only
+        the tooltips say it; the picking itself is the same."""
+        self._click_action = action
+
     def _tip(self, hit) -> str:
-        after = "then Go instant or Go timed. Nothing is sent until then."
+        after = {
+            "instant": "and you go there at once.",
+            "timed": "and the timed transition takes you there.",
+        }.get(getattr(self, "_click_action", "select"),
+              "then Go instant or Go timed. Nothing is sent until then.")
         if self._target_locked and self._picks_when_free(hit):
             return self._target_why
         if hit == "now":

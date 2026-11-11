@@ -206,10 +206,104 @@ class Segmented(QWidget):
                 return key
         return next(iter(self._buttons))
 
+    def mark_kinds(self) -> None:
+        """Each button carries its key as the `kind` property, so the
+        stylesheet can colour a choice by what it is (pink instant, …)."""
+        for key, btn in self._buttons.items():
+            btn.setProperty("kind", key)
+
     def set_value(self, key: str) -> None:
         btn = self._buttons.get(key)
         if btn is not None:
             btn.setChecked(True)
+
+
+class ModeSwitch(QWidget):
+    """What a click on the height scale does, on top of the picture: the
+    choice in use as one button; pressed, the other two unfold under it,
+    inside the card (no popup), and picking one folds them away again.
+    Each in its colour: select green, go instant pink, go timed yellow."""
+
+    changed = Signal(str)
+
+    TEXTS = {"select": "Select height", "instant": "Go instant", "timed": "Go timed"}
+    TIPS = {
+        "select": "A click on the scale only picks the target; Go instant or Go timed "
+                  "then takes you there.",
+        "instant": "A click on the scale takes you there at once.",
+        "timed": "A click on the scale starts the timed transition there (time and curve "
+                 "from the Timed transition card).",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._mode = "select"
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        top = hbox(spacing=8)
+        self.caption = label("A CLICK ON THE SCALE", "Micro")
+        top.addWidget(self.caption, 0, Qt.AlignVCenter)
+        top.addStretch(1)
+        self.current = QPushButton()
+        self.current.setObjectName("ModeCurrent")
+        self.current.setCursor(Qt.PointingHandCursor)
+        self.current.clicked.connect(self._toggle)
+        top.addWidget(self.current)
+        lay.addLayout(top)
+        self.options = QWidget()
+        opts = hbox(spacing=6)
+        self.options.setLayout(opts)
+        opts.addStretch(1)
+        self._option_btns: Dict[str, QPushButton] = {}
+        for key, text in self.TEXTS.items():
+            btn = QPushButton(text)
+            btn.setObjectName("ModeOption")
+            btn.setProperty("kind", key)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(self.TIPS[key])
+            btn.clicked.connect(lambda _c=False, k=key: self._pick(k))
+            self._option_btns[key] = btn
+            opts.addWidget(btn)
+        self.options.hide()
+        lay.addWidget(self.options)
+        # the picture decides the card's width, never this row: in a narrow
+        # window the caption folds away and the options share what is left
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.set_mode("select")
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        need = self.caption.sizeHint().width() + 8 + self.current.sizeHint().width()
+        self.caption.setVisible(self.width() >= need)
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    @property
+    def expanded(self) -> bool:
+        return not self.options.isHidden()
+
+    def set_mode(self, mode: str) -> None:
+        if mode not in self.TEXTS:
+            return
+        self._mode = mode
+        self.current.setText(f"{self.TEXTS[mode]}  ▾")
+        self.current.setProperty("kind", mode)
+        self.current.setToolTip(self.TIPS[mode] + " Click to change.")
+        restyle(self.current)
+        for key, btn in self._option_btns.items():
+            btn.setVisible(key != mode)
+
+    def _toggle(self) -> None:
+        self.options.setVisible(self.options.isHidden())
+        self.current.setText(f"{self.TEXTS[self._mode]}  {'▴' if self.expanded else '▾'}")
+
+    def _pick(self, mode: str) -> None:
+        self.options.hide()
+        self.set_mode(mode)
+        self.changed.emit(mode)
 
 
 _MODIFIER_QT_KEYS = (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta, Qt.Key_AltGr,

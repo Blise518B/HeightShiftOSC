@@ -22,8 +22,8 @@ import logging
 from typing import Dict, Optional, Tuple
 
 from PySide6.QtCore import QByteArray, QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (QFont, QFontMetrics, QGuiApplication, QKeySequence, QPixmap,
-                           QShortcut)
+from PySide6.QtGui import (QActionGroup, QFont, QFontMetrics, QGuiApplication, QKeySequence,
+                           QPixmap, QShortcut)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -49,6 +50,7 @@ from constants import (
     MENU_GUIDE_URL,
     MENU_PREFAB_URL,
     MIN_HEIGHT_CM,
+    SAVED_SLOTS,
     SEND_RATES,
 )
 from height_logic import (
@@ -68,6 +70,7 @@ from .update_dialog import UpdateDialog
 from .widgets import (
     CtrlWheelZoom,
     KeyCaptureButton,
+    ModeSwitch,
     Segmented,
     card,
     group,
@@ -139,6 +142,9 @@ class HeightShiftWindow(QMainWindow):
     hotkey_captured = Signal(str, int, int)   # "grow" | "shrink", vk, mods
     hotkey_speed_changed = Signal(float, str) # speed, "pct" | "cm"
     hotkeys_vrchat_only_toggled = Signal(bool)
+    # --- what a click does ---
+    slot_action_changed = Signal(int, str)    # saved height N: "select" | "instant" | "timed"
+    scale_mode_changed = Signal(str)          # a click on the scale: the same three
     # --- updates ---
     update_chip_clicked = Signal()            # the header's "update available" chip
     check_updates_clicked = Signal()          # Settings → Check for updates now
@@ -157,7 +163,9 @@ class HeightShiftWindow(QMainWindow):
         self._slider_lo, self._slider_hi = float(MIN_HEIGHT_CM), float(MAX_HEIGHT_CM)
         self._height_known = False
         self._ratio: Tuple[str, str] = ("", "")        # what the ratio line says
-        self._saved: Dict[int, Optional[float]] = {}   # the four saved heights
+        self._saved: Dict[int, Optional[float]] = {}   # the saved heights (SAVED_SLOTS)
+        self._slot_actions: Dict[int, str] = {}         # what a click on each does
+        self.slot_action_segs: Dict[int, Segmented] = {}
         self._pick_ok: Dict[int, Tuple[bool, str]] = {}
         self._target_editable = True
         self._now_cm: Optional[float] = None          # what the comparison shows
@@ -328,6 +336,12 @@ class HeightShiftWindow(QMainWindow):
         lay = vbox(spacing=0)
         lay.setContentsMargins(12, 10, 12, 10)
         frame.setLayout(lay)
+        # what a click on the scale does: only pick the target, or go there
+        # at once or over time — one button, unfolding inside the card
+        self.mode_switch = ModeSwitch()
+        self.mode_switch.changed.connect(self._on_scale_mode)
+        lay.addWidget(self.mode_switch)
+        lay.addSpacing(4)
         self.figure = SizeComparison()
         self.figure.target_previewed.connect(self._on_scale_target_preview)
         self.figure.target_committed.connect(self._on_scale_target_commit)
@@ -356,7 +370,7 @@ class HeightShiftWindow(QMainWindow):
         ))
         # a saved height never clipped ("4 · 999.9 cm", "4 · 99.99 m")
         slot = self.profile_load_btns[1]
-        slot_w = widest(slot, "4 · 999.9 cm", "4 · 99.99 m") + 20
+        slot_w = widest(slot, "6 · 999.9 cm", "6 · 99.99 m") + 20
         for btn in self.profile_load_btns.values():
             btn.setMinimumWidth(slot_w)
 
@@ -443,19 +457,23 @@ class HeightShiftWindow(QMainWindow):
         picks = QGridLayout()
         picks.setHorizontalSpacing(6)
         picks.setVerticalSpacing(6)
-        for i in range(1, 5):
+        for i in range(1, SAVED_SLOTS + 1):
             pick = QPushButton(f"{i} · empty")
             pick.setObjectName("Slot")
             pick.setCheckable(True)              # checked: it is the target now
             pick.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            pick.setProperty("kind", "select")   # pink: go instant, yellow: go timed
             pick.clicked.connect(lambda _c=False, n=i: self._on_pick_profile(n))
+            pick.setContextMenuPolicy(Qt.CustomContextMenu)
+            pick.customContextMenuRequested.connect(
+                lambda _p, n=i: self._slot_menu(n))
             self.profile_values[i] = pick
             self.profile_load_btns[i] = pick
-            picks.addWidget(pick, (i - 1) // 2, (i - 1) % 2)
+            picks.addWidget(pick, (i - 1) // 3, (i - 1) % 3)     # three across, two rows
         lay.addLayout(picks)
         lay.addWidget(label("SAVE CURRENT HEIGHT TO", "Micro"))
         saves = hbox(spacing=6)
-        for i in range(1, 5):
+        for i in range(1, SAVED_SLOTS + 1):
             save = QPushButton(f" {i}")
             save.setObjectName("SlotSave")
             save.clicked.connect(lambda _c=False, n=i: self.profile_save.emit(n))
@@ -584,6 +602,26 @@ class HeightShiftWindow(QMainWindow):
         g.addWidget(hint("How often a timed transition or a held key (hotkey or VRChat menu) "
                           "sends your height: more is smoother. VRChat sets no limit; if your "
                           "own view jitters while you grow, try fewer."))
+        g.addSpacing(4)
+        g.addWidget(label("Saved heights: what a click does", "FieldLabel"))
+        for i in range(1, SAVED_SLOTS + 1):
+            row = hbox(spacing=6)
+            row.addWidget(label(f"{i}", "FieldLabel"))
+            seg = Segmented([("select", "Select"), ("instant", "Go instant"),
+                             ("timed", "Go timed")])
+            seg.mark_kinds()
+            seg.set_tooltips({
+                "select": "A click loads it as the target; Go instant or Go timed takes you "
+                          "there",
+                "instant": "A click takes you there at once (pink)",
+                "timed": "A click starts the timed transition there (yellow)",
+            })
+            seg.set_value("select")
+            seg.changed.connect(lambda k, n=i: self.slot_action_changed.emit(n, k))
+            self.slot_action_segs[i] = seg
+            row.addWidget(seg, 1)
+            g.addLayout(row)
+        g.addWidget(hint("Also: right-click a saved height in the Height panel."))
         g.addSpacing(4)
         g.addWidget(label("Scale range", "FieldLabel"))
         rng = hbox(spacing=6)
@@ -884,6 +922,34 @@ class HeightShiftWindow(QMainWindow):
     def _on_scale_target_commit(self, cm: float) -> None:
         self._on_scale_target_preview(cm)
         self.transition_inputs_changed.emit()
+        self._go(self.mode_switch.mode)
+
+    def _go(self, action: str) -> None:
+        """After a pick: nothing more ("select"), or Go instant / Go timed —
+        the same buttons, so the same checks decide."""
+        if action == "instant":
+            self.go_instant_clicked.emit()
+        elif action == "timed":
+            self.play_clicked.emit()
+
+    def _on_scale_mode(self, mode: str) -> None:
+        self.figure.set_click_action(mode)
+        self.scale_mode_changed.emit(mode)
+
+    def _slot_menu(self, num: int) -> None:
+        """Right-click on a saved height: what a click on it does."""
+        menu = QMenu(self)
+        group = QActionGroup(menu)
+        current = self._slot_actions.get(num, "select")
+        for key, text in (("select", "Select — load as the target"),
+                          ("instant", "Go instant — pink"), ("timed", "Go timed — yellow")):
+            act = menu.addAction(text)
+            act.setCheckable(True)
+            act.setChecked(key == current)
+            group.addAction(act)
+            act.triggered.connect(lambda _c=False, k=key: self.slot_action_changed.emit(num, k))
+        btn = self.profile_load_btns[num]
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _on_range_spin(self) -> None:
         if self._suppress:
@@ -1002,6 +1068,7 @@ class HeightShiftWindow(QMainWindow):
             return
         self.target_spin.setValue(cm)          # -> transition_inputs_changed
         self._update_comparison()
+        self._go(self._slot_actions.get(num, "select"))
 
     def _apply_picks(self) -> None:
         locked = ("" if self._target_editable else
@@ -1025,6 +1092,22 @@ class HeightShiftWindow(QMainWindow):
                            else save_reason)
         self._pick_ok = dict(pick_ok)
         self._apply_picks()
+
+    def set_slot_action(self, num: int, action: str) -> None:
+        """What a click on saved height `num` does: its colour, its menu and
+        its row in Settings."""
+        self._slot_actions[num] = action
+        btn = self.profile_load_btns.get(num)
+        if btn is not None:
+            btn.setProperty("kind", action)
+            restyle(btn)
+        seg = self.slot_action_segs.get(num)
+        if seg is not None:
+            seg.set_value(action)
+
+    def set_scale_mode(self, mode: str) -> None:
+        self.mode_switch.set_mode(mode)
+        self.figure.set_click_action(mode)
 
     def set_go_instant(self, ok: bool, tip: str) -> None:
         self.go_instant_btn.setEnabled(ok)

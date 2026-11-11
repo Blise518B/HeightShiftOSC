@@ -34,11 +34,12 @@ from constants import (
     LEGACY_CONFIG_DIR_NAME,
     MAX_HEIGHT_CM,
     MIN_HEIGHT_CM,
+    SAVED_SLOTS,
 )
 
 logger = logging.getLogger(__name__)
 
-PROFILE_COUNT = 4
+PROFILE_COUNT = SAVED_SLOTS
 
 
 def get_app_config_dir() -> str:

@@ -5,6 +5,24 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.24] - 2026-11-11
+
+### Added
+- Six saved heights (were four), three across in a wider Height panel.
+- What a click does, per saved height: *Select* (load it as the target, as before), *Go instant*
+  (pink: go there at once) or *Go timed* (yellow: start the timed transition there). Set it by
+  right-clicking the saved height, or in Settings → Height. A pink 1 cm is one click from 1 cm.
+- The same choice for the height scale, as a button on top of the picture: *Select height* (the
+  default), *Go instant* or *Go timed*; pressed, the other two unfold inside the card.
+
+### Fixed
+- A nudge past a limit stops at it instead of doing nothing: −100 at 85 cm goes to 1 cm, as in 1.x.
+- −1 at 2 cm reaches 1 cm: VRChat's 32-bit 2 cm is 1.99999995 cm, and 1 cm minus a hair was refused.
+
+### Changed
+- A first start opens a 740 × 810 window, so the wider Height panel and the picture fit side by side.
+  The VRChat menu still has saved heights 1–4.
+
 ## [2.0.23] - 2026-11-11
 
 ### Fixed

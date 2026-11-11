@@ -92,6 +92,29 @@ QLabel#MenuGuideLine { color: %(muted)s; font-size: 12px; }
 QLabel#Chip { min-height: 20px; max-height: 20px; }
 
 QPushButton#Step { padding: 6px 10px; min-width: 50px; }
+/* what a click does: a saved height's action, the scale's mode */
+QPushButton#Slot[kind="instant"] { border-color: %(instant)s; color: %(instant)s; }
+QPushButton#Slot[kind="instant"]:hover, QPushButton#Slot[kind="instant"]:checked {
+    background: %(instant_tint)s; border-color: %(instant)s; color: %(instant)s; }
+QPushButton#Slot[kind="instant"]:disabled { border-color: %(instant_mid)s; color: %(dim)s; }
+QPushButton#Slot[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
+QPushButton#Slot[kind="timed"]:hover, QPushButton#Slot[kind="timed"]:checked {
+    background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
+QPushButton#Slot[kind="timed"]:disabled { border-color: %(timed_mid)s; color: %(dim)s; }
+QPushButton#Seg[kind="instant"]:checked { background: %(instant_tint)s; border-color: %(instant)s; color: %(instant)s; }
+QPushButton#Seg[kind="timed"]:checked { background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
+QPushButton#ModeCurrent { padding: 4px 12px; font-weight: 650; }
+QPushButton#ModeCurrent[kind="select"] { background: %(tint)s; border-color: %(accent)s; color: %(accent)s; }
+QPushButton#ModeCurrent[kind="instant"] { background: %(instant)s; border-color: %(instant)s; color: %(ink)s; }
+QPushButton#ModeCurrent[kind="timed"] { background: %(timed)s; border-color: %(timed)s; color: %(ink)s; }
+QPushButton#ModeCurrent[kind="instant"]:hover, QPushButton#ModeCurrent[kind="timed"]:hover {
+    border-color: %(txt)s; color: %(ink)s; }
+QPushButton#ModeOption { padding: 4px 12px; }
+QPushButton#ModeOption[kind="select"] { border-color: %(accent)s; color: %(accent)s; }
+QPushButton#ModeOption[kind="instant"] { border-color: %(instant)s; color: %(instant)s; }
+QPushButton#ModeOption[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
+QPushButton#ModeOption[kind="instant"]:hover { background: %(instant_tint)s; }
+QPushButton#ModeOption[kind="timed"]:hover { background: %(timed_tint)s; }
 QPushButton#GoInstant { background: %(instant)s; border-color: %(instant)s; color: %(ink)s; font-weight: 650; }
 QPushButton#GoInstant:hover { background: %(instant)s; border-color: %(txt)s; color: %(ink)s; }
 QPushButton#GoInstant:disabled { background: transparent; border-color: %(instant_mid)s; color: %(dim)s; }

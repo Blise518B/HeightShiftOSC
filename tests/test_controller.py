@@ -3,6 +3,7 @@ written to VRChat. Runs Qt offscreen; no network, no VRChat."""
 
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import time
@@ -530,6 +531,74 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(self.c.config.config["transition_target_cm"], 5000.0)
         self.assertTrue(self.window.profile_load_btns[2].isChecked())   # it is the target
 
+    # --- what a click does: saved heights and the scale --------------------
+    def test_six_saved_heights(self):
+        self.make()
+        self.assertEqual(sorted(self.window.profile_load_btns), [1, 2, 3, 4, 5, 6])
+        self.assertEqual(sorted(self.window.profile_save_btns), [1, 2, 3, 4, 5, 6])
+        self.connect()
+        self.report(0.03)
+        self.window.profile_save_btns[6].click()
+        self.assertEqual(self.c.profiles["profile6"], 3.0)
+
+    def test_a_select_slot_only_picks_the_target(self):
+        self.make(profiles={"profile1": 140.0})
+        self.connect()
+        self.report(1.7)
+        self.window.profile_load_btns[1].click()
+        self.assertEqual(self.window.target_spin.value(), 140.0)
+        self.assertEqual(self.osc.sent, [])
+        self.assertIsNone(self.c.transition)
+
+    def test_an_instant_slot_goes_there_at_once(self):
+        # "I really liked how easy I could instantly go down to 1 cm"
+        self.make(profiles={"profile2": 1.0}, profile_actions={"profile2": "instant"})
+        self.connect()
+        self.report(1.7)
+        self.assertEqual(self.window.profile_load_btns[2].property("kind"), "instant")
+        self.window.profile_load_btns[2].click()
+        self.assertEqual(self.osc.sent, [1.0])
+        self.assertIsNone(self.c.transition)
+
+    def test_a_timed_slot_starts_the_transition(self):
+        self.make(profiles={"profile3": 300.0}, profile_actions={"profile3": "timed"})
+        self.connect()
+        self.report(1.7)
+        self.window.profile_load_btns[3].click()
+        self.assertIsNotNone(self.c.transition)
+        self.assertTrue(self.c.transition.playing)
+        self.assertEqual(self.window.target_spin.value(), 300.0)
+
+    def test_a_slots_action_is_set_saved_and_shown(self):
+        self.make(profiles={"profile1": 140.0})
+        self.window.slot_action_segs[1].changed.emit("instant")    # Settings
+        self.assertEqual(self.c.slot_actions[1], "instant")
+        self.assertEqual(self.c.config.config["profile_actions"]["profile1"], "instant")
+        self.assertEqual(self.window.profile_load_btns[1].property("kind"), "instant")
+        self.window.slot_action_changed.emit(1, "timed")             # right-click menu
+        self.assertEqual(self.window.slot_action_segs[1].value(), "timed")
+        self.window.slot_action_changed.emit(1, "nonsense")          # ignored
+        self.assertEqual(self.c.slot_actions[1], "timed")
+
+    def test_the_scale_mode_decides_what_a_pick_does(self):
+        self.make(transition_target_cm=170)
+        self.connect()
+        self.report(1.7)
+        fig, switch = self.window.figure, self.window.mode_switch
+        fig.target_committed.emit(500.0)                             # select: picks only
+        self.assertEqual(self.osc.sent, [])
+        switch.current.click()                                       # unfolds inside the card
+        self.assertTrue(switch.expanded)
+        switch._option_btns["instant"].click()
+        self.assertFalse(switch.expanded)
+        self.assertEqual(self.c.config.config["scale_mode"], "instant")
+        fig.target_committed.emit(2.0)                               # instant: there at once
+        self.assertEqual(self.osc.sent, [2.0])
+        self.c._on_scale_mode("timed")
+        self.assertEqual(switch.mode, "timed")
+        fig.target_committed.emit(800.0)                             # timed: the transition
+        self.assertTrue(self.c.transition is not None and self.c.transition.playing)
+
     def test_go_instant_sends_the_target_at_once(self):
         self.make(transition_target_cm=5000)
         self.connect()
@@ -692,15 +761,40 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(self.osc.sent, [])
 
     # --- limits ---------------------------------------------------------
-    def test_above_limit_is_refused_not_clamped(self):
+    def test_a_nudge_stops_at_the_top(self):
         self.make()
         self.connect()
         self.report(99.995)
         self.c._on_adjust(100.0)
+        self.assertEqual(self.osc.sent, [10000.0])               # the 100 m limit
+        self.assertIn("stopped at the highest", self.window.status_msg.text())
+
+    def test_minus_100_at_85_cm_goes_to_1_cm(self):
+        # as 1.x did: "I could instantly go down to 1 cm when someone was
+        # about to step on me"
+        self.make()
+        self.connect()
+        self.report(0.85)
+        self.c._on_adjust(-100.0)
+        self.assertEqual(self.osc.sent, [1.0])
+
+    def test_minus_1_at_2_cm_reaches_1_cm(self):
+        # VRChat's 32-bit float for 2 cm is 1.99999995 cm: -1 is still 1 cm
+        two_cm = struct.unpack("f", struct.pack("f", 0.02))[0]
+        self.make()
+        self.connect()
+        self.report(two_cm)
+        self.c._on_adjust(-1.0)
+        self.assertEqual(self.osc.sent, [1.0])
+
+    def test_at_1_cm_a_nudge_down_says_so(self):
+        one_cm = struct.unpack("f", struct.pack("f", 0.01))[0]
+        self.make()
+        self.connect()
+        self.report(one_cm)
+        self.c._on_adjust(-10.0)
         self.assertEqual(self.osc.sent, [])
-        self.window.unlock_cb.setChecked(True)
-        self.c._on_adjust(100.0)
-        self.assertEqual(self.osc.sent, [10099.5])
+        self.assertIn("Already at the lowest", self.window.status_msg.text())
 
     def test_profile_above_limit_is_refused(self):
         self.make(profiles={"profile1": 50_000})

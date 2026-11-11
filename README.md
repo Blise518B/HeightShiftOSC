@@ -32,10 +32,15 @@ steps, hold a key, or use its own menu in VRChat.
   under it.
 - **Pick the target, then go.** Pick it on the scale — click or drag anywhere along it, drag the pointer,
   or pull either head up or down (a dashed line with the height follows the mouse first) — by typing it
-  (`170`, `1.7 m`, `1,7 m`, `50 m`, `1.2 km`), or by loading one of four saved heights as the target
-  (click it in the panel or its numbered mark on the scale). Picking never sends anything: **Go instant**
-  sets the target at once; **Go timed** glides there over the time set below. The ring on the scale only
-  shows where you are.
+  (`170`, `1.7 m`, `1,7 m`, `50 m`, `1.2 km`), or by loading one of six saved heights as the target
+  (click it in the panel or its numbered mark on the scale). Picking sends nothing by itself: **Go
+  instant** sets the target at once; **Go timed** glides there over the time set below. The ring on the
+  scale only shows where you are.
+- **Or go with one click.** The button on top of the picture says what a click on the scale does:
+  *Select height* (only pick, the default), *Go instant* (pink: go there at once) or *Go timed*
+  (yellow: start the transition there); pressed, the other two unfold right there in the card. Each
+  saved height has the same choice — right-click it, or Settings → Height — and wears its colour: a
+  pink "1 cm" slot is one click from 1 cm.
 - **Timed transition** — a duration in seconds, minutes or hours and a curve: *Even speed* (same cm every
   second) or *Even growth* (same percentage every second, so 1 m → 50 m doesn't rush at the start). A
   graph shows the curve with a playhead; Pause / Resume / Stop. Sends 30 updates a second by default
@@ -54,8 +59,9 @@ steps, hold a key, or use its own menu in VRChat.
 - **Unlock upper limit** — off: nothing above 100 m is ever sent. On: up to 1000 m, and the height
   scale's top goes up to 1000 m with it (off again: back to 100 m). VRChat or the world may still cap
   it lower.
-- Nudge now: ±1, ±10, ±100 cm, sent at once (+N in a red frame over −N in a blue one). Save current height to: stores your height in one of the four
-  saved heights.
+- Nudge now: ±1, ±10, ±100 cm, sent at once (+N in a red frame over −N in a blue one); a step past a
+  limit stops at it (−100 at 85 cm goes to 1 cm). Save current height to: stores your height in one of
+  the six saved heights.
 - **Keep my height when I switch avatars** — resends the height you had *before* the change for about
   two seconds, and once more if VRChat didn't take it. Any manual change cancels it.
 - Automatic OSCQuery / mDNS discovery of VRChat, plus the OSC Router 518 fallback.
@@ -113,7 +119,8 @@ Keys: `profiles` (`profile1`–`profile4`, cm) · `startup_mode` (`query` = read
 `hotkeys_enabled` · `hotkey_grow` / `hotkey_shrink` (`{"vk": <Windows key code>, "mods": <1 Ctrl | 2 Shift
 | 4 Alt>}`) · `hotkey_speed` / `hotkey_speed_unit` (`pct` / `cm`) · `hotkeys_vrchat_only` ·
 `osc_router_518` · `hide_console` · `ui_mode` (`neon` / `midnight`) · `text_scale` · `settings_open` ·
-`window_geometry_qt` · `skip_update_version` (the release tag set to "don't remind me").
+`window_geometry_qt` · `skip_update_version` (the release tag set to "don't remind me") ·
+`profile_actions` (`{"profile1": "select" | "instant" | "timed"}`) · `scale_mode` (the same three).
 
 ## OSC
 

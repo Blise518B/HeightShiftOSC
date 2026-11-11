@@ -44,6 +44,8 @@ from constants import (
     APP_NAME,
     BURST_DURATION,
     BURST_INTERVAL,
+    CLICK_ACTIONS,
+    DEFAULT_CLICK_ACTION,
     DEFAULT_HIDE_CONSOLE,
     DEFAULT_OSC_ROUTER_518,
     DEFAULT_PRESERVE_HEIGHT_ON_AVATAR,
@@ -158,6 +160,13 @@ class HeightShiftController(QObject):
             lo, hi = float(MIN_HEIGHT_CM), float(MAX_HEIGHT_CM)
         self.slider_lo, self.slider_hi = lo, hi
         self.profiles = c.load_profiles()
+        # what a click does: on each saved height, and on the height scale
+        raw = c.config.get("profile_actions")
+        raw = raw if isinstance(raw, dict) else {}
+        self.slot_actions = {
+            i: raw.get(f"profile{i}") if raw.get(f"profile{i}") in CLICK_ACTIONS
+            else DEFAULT_CLICK_ACTION for i in range(1, PROFILE_COUNT + 1)}
+        self.scale_mode = c.get_choice("scale_mode", DEFAULT_CLICK_ACTION, CLICK_ACTIONS)
         self.hotkeys_on = c.get_bool("hotkeys_enabled", DEFAULT_HOTKEYS_ENABLED)
         self.hotkeys_vrchat_only = c.get_bool("hotkeys_vrchat_only", True)
         self.hotkey_grow = Hotkey.from_config(c.config.get("hotkey_grow")) or DEFAULT_GROW
@@ -289,6 +298,8 @@ class HeightShiftController(QObject):
         w.hotkey_captured.connect(self._on_hotkey_captured)
         w.hotkey_speed_changed.connect(self._on_hotkey_speed)
         w.hotkeys_vrchat_only_toggled.connect(self._on_hotkeys_vrchat_only)
+        w.slot_action_changed.connect(self._on_slot_action)
+        w.scale_mode_changed.connect(self._on_scale_mode)
         w.update_chip_clicked.connect(self._open_update)
         w.check_updates_clicked.connect(lambda: self.check_for_updates(manual=True))
         w.update_install_clicked.connect(self._on_update_install)
@@ -320,6 +331,9 @@ class HeightShiftController(QObject):
         )
         for i in range(1, PROFILE_COUNT + 1):
             w.set_profile(i, self.profiles.get(f"profile{i}"))
+        for i, action in self.slot_actions.items():
+            w.set_slot_action(i, action)
+        w.set_scale_mode(self.scale_mode)
         self._show_hotkeys()
         self._show_menu_status()
         w.set_updates_info(updater.is_self_updatable())
@@ -1066,10 +1080,24 @@ class HeightShiftController(QObject):
     # ------------------------------------------------------------------
 
     def _on_adjust(self, delta: float) -> None:
+        """A nudge stops AT the limit instead of being refused before it:
+        −100 at 85 cm goes to 1 cm (as 1.x did — "I could instantly go down
+        to 1 cm when someone was about to step on me"). VRChat reports in
+        32-bit floats, so 2 cm arrives as 1.99999995 cm; −1 from there is 1 cm,
+        not "below the minimum"."""
         if self.height_cm is None:
             self._status("Steps start from the current height — waiting for VRChat to report it.")
             return
-        self._set_absolute(self.height_cm + delta, f"{delta:+g} cm")
+        lo, hi = float(MIN_HEIGHT_CM), max_height_cm(self.unlocked)
+        wanted = round(self.height_cm + delta, 4)
+        goal = min(hi, max(lo, wanted))
+        if abs(goal - self.height_cm) < 0.01:
+            end = "lowest" if delta < 0 else "highest"
+            self._status(f"Already at the {end} height there is: {format_height(goal)}.")
+            return
+        why = f"{delta:+g} cm" if goal == wanted else \
+            f"{delta:+g} cm, stopped at the {'lowest' if delta < 0 else 'highest'} height"
+        self._set_absolute(goal, why)
 
     def _on_refresh(self) -> None:
         if not self.connected:
@@ -1078,6 +1106,28 @@ class HeightShiftController(QObject):
         self._show_height()
         self._refresh()
         self._start_reading(0)
+
+    _ACTION_WORDS = {"select": "loads it as the target", "instant": "goes there at once",
+                     "timed": "starts the timed transition there"}
+
+    def _on_slot_action(self, num: int, action: str) -> None:
+        """Saved height `num`: what a click on it does from now on."""
+        if action not in CLICK_ACTIONS or not 1 <= num <= PROFILE_COUNT:
+            return
+        self.slot_actions[num] = action
+        self.config.update_config({"profile_actions": {
+            f"profile{i}": a for i, a in self.slot_actions.items()}})
+        self.window.set_slot_action(num, action)
+        self._status(f"Saved height {num}: a click {self._ACTION_WORDS[action]}.")
+
+    def _on_scale_mode(self, mode: str) -> None:
+        """What a click on the height scale does from now on."""
+        if mode not in CLICK_ACTIONS:
+            return
+        self.scale_mode = mode
+        self.config.update_config({"scale_mode": mode})
+        self.window.set_scale_mode(mode)
+        self._status(f"A click on the height scale {self._ACTION_WORDS[mode].replace('it ', '')}.")
 
     def _on_profile_save(self, num: int) -> None:
         if self.height_cm is None:

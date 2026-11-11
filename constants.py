@@ -60,8 +60,8 @@ MENU_GUIDE_URL = f"{GITHUB_URL}/blob/main/docs/VRCHAT_MENU.md"
 # and the Height panel side by side, Settings folded (open, they'd need a
 # wider window). After that the window reopens where it was left
 # (saveGeometry/restoreGeometry).
-DEFAULT_WINDOW_WIDTH = 608
-DEFAULT_WINDOW_HEIGHT = 778
+DEFAULT_WINDOW_WIDTH = 740
+DEFAULT_WINDOW_HEIGHT = 810
 DEFAULT_SETTINGS_OPEN = False
 
 # --- Writing heights ---
@@ -102,6 +102,13 @@ DEFAULT_TRANSITION_UNIT = "s"      # "s" | "min" | "h"
 # A first start comes with one saved height, so Load as target and the
 # scale's numbered mark show what they do; the other three slots are empty.
 DEFAULT_PROFILES = {"profile1": 140.0}
+SAVED_SLOTS = 6                    # saved heights in the window (the VRChat menu has 1-4)
+# What a click does — on a saved height (each its own), and on the height
+# scale (one for all). Blise, 2026-11-11: "change the slots from the default
+# select to the pink instant or the yellow timed", "above the height limit …
+# select height, go instant and go timed". Select only picks the target.
+CLICK_ACTIONS = ("select", "instant", "timed")
+DEFAULT_CLICK_ACTION = "select"
 TRANSITION_MAX_DURATION_S = 99 * 3600
 
 # --- Hold-to-grow hotkeys ---
