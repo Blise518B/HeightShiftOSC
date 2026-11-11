@@ -43,7 +43,17 @@ if not exist "%VENV_PY%" (
 
 REM Resolve the dynamic version (commit count on main + optional branch suffix)
 echo Resolving version from Git...
-for /f "usebackq tokens=*" %%i in (`"%VENV_PY%" -c "from version import __version__; print(__version__)"`) do set BUILD_VERSION=%%i
+REM VENV_PY is unquoted here on purpose: for /f runs the command through
+REM cmd /c, which strips the first and last quote of a line that starts with
+REM one ("venv\...python.exe" -c "..." broke into a garbled command). The
+REM relative venv path has no spaces.
+set "BUILD_VERSION="
+for /f "usebackq tokens=*" %%i in (`%VENV_PY% -c "from version import __version__; print(__version__)"`) do set BUILD_VERSION=%%i
+if not defined BUILD_VERSION (
+    echo [ERROR] Could not resolve the version ^(version.py^).
+    pause
+    exit /b 1
+)
 echo Building version: !BUILD_VERSION!
 echo.
 
@@ -52,7 +62,8 @@ echo [1/5] Checking for PyInstaller...
 if %errorlevel% neq 0 (
     echo PyInstaller not found. Installing...
     "%VENV_PY%" -m pip install pyinstaller
-    if %errorlevel% neq 0 (
+    REM not %%errorlevel%%: inside ( ) that is read before pip runs
+    if errorlevel 1 (
         echo [ERROR] Failed to install PyInstaller.
         pause
         exit /b 1
