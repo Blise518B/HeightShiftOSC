@@ -378,13 +378,13 @@ class HeightShiftWindow(QMainWindow):
         scale = text_scale()
         # the usual lines; a rarer, longer one wraps onto a second line
         self.hero.setMinimumWidth(max(
-            widest(self.hero, "999.99 m", px=round(28 * scale)),
+            widest(self.hero, "999.999 m", px=round(28 * scale)),
             widest(self.hero_sub, "5,000 cm · read from VRChat"),
             widest(self.target_note, "on the way · 12:00 left", "in 10 min, even growth"),
         ))
-        # a saved height never clipped ("4 · 999.9 cm", "4 · 99.99 m")
+        # a saved height never clipped ("6 · 999.9 cm", "6 · 99.999 m")
         slot = self.profile_load_btns[1]
-        slot_w = widest(slot, "6 · 999.9 cm", "6 · 99.99 m") + 20
+        slot_w = widest(slot, "6 · 999.9 cm", "6 · 99.999 m") + 20
         for btn in self.profile_load_btns.values():
             btn.setMinimumWidth(slot_w)
 
@@ -1105,8 +1105,14 @@ class HeightShiftWindow(QMainWindow):
         for num, btn in self.profile_load_btns.items():
             ok, why = self._pick_ok.get(num, (False, ""))
             usable = ok and self._target_editable
-            btn.setEnabled(usable)
-            btn.setToolTip(why if not ok else (locked or why))
+            # Never setEnabled(False): a disabled button gets no right-click,
+            # and an empty or locked slot's action must still be settable.
+            # It only looks inactive, and a left-click on it does nothing.
+            btn.setProperty("usable", "true" if usable else "false")
+            btn.setCursor(Qt.PointingHandCursor if usable else Qt.ArrowCursor)
+            restyle(btn)
+            tip = why if not ok else (locked or why)
+            btn.setToolTip((tip + " — " if tip else "") + "right-click: what a click on it does")
             marks[num] = (usable, why if not ok else (locked or why))
         self.figure.set_marks_enabled(marks)
 

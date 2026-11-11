@@ -11,8 +11,9 @@
 
   The palette is the 518 green: site/tokens.css is a verbatim copy of
   _hub\design\tokens.css, and every colour below is a token or a mix of one
-  (color-mix), never a new hex. site/app.png is the app's default window,
-  rendered by the app itself; the menu icons are docs/unity/icons/.
+  (color-mix), never a new hex. site/app.png (the window) and site/og.png
+  (link previews) are drawn by the app itself: tools/make_preview.py. The
+  menu icons are docs/unity/icons/.
 
   Downloads always point at the newest release:
   releases/latest/download/<fixed name> (build.bat writes HeightShift.exe).
@@ -23,7 +24,10 @@
 <meta property="og:title" content="HeightShift">
 <meta property="og:description" content="Change your height in VRChat, smoothly: pick a height on a size picture, then go there instantly or grow into it.">
 <meta property="og:url" content="https://blise518b.github.io/HeightShiftOSC/">
-<meta property="og:image" content="https://blise518b.github.io/HeightShiftOSC/site/app.png">
+<meta property="og:image" content="https://blise518b.github.io/HeightShiftOSC/site/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="site/favicon.ico" sizes="any">
 <link rel="icon" href="site/icon.png" type="image/png">
 <link rel="stylesheet" href="site/tokens.css">
@@ -174,7 +178,7 @@ footer { margin-top: 80px; border-top: 1px solid var(--edge); padding: 30px 0; b
     </div>
     <p class="dlmeta">Windows 10 / 11 &middot; one file, no install &middot; updates itself &middot; free and open source</p>
   </div>
-  <div class="shot"><img src="site/app.png" alt="The HeightShift window: you at 1.7 m in front of a 50 m target on a logarithmic height scale" width="608" height="778"></div>
+  <div class="shot"><img src="site/app.png" alt="The HeightShift window: you at 1.7 m in front of a 50 m target on a logarithmic height scale, saved heights in pink and yellow, Go instant and Go timed" width="740" height="810"></div>
 </header>
 
 <section class="section wrap" id="does">

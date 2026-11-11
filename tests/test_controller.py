@@ -569,6 +569,27 @@ class ControllerTest(unittest.TestCase):
         self.assertTrue(self.c.transition.playing)
         self.assertEqual(self.window.target_spin.value(), 300.0)
 
+    def test_an_empty_slot_takes_a_right_click_but_not_a_click(self):
+        self.make()
+        self.connect()
+        self.report(1.7)
+        btn = self.window.profile_load_btns[4]                       # empty
+        self.assertTrue(btn.isEnabled())                             # right-click reaches it
+        self.assertEqual(btn.property("usable"), "false")
+        self.assertEqual(btn.contextMenuPolicy(), Qt.CustomContextMenu)
+        target = self.window.target_spin.value()
+        btn.click()                                                  # a click does nothing
+        self.assertEqual(self.window.target_spin.value(), target)
+        self.assertFalse(btn.isChecked())
+        self.assertEqual(self.osc.sent, [])
+        self.window.slot_action_changed.emit(4, "instant")           # what its menu does
+        self.assertEqual(btn.property("kind"), "instant")
+        self.window.profile_save_btns[4].click()                     # save 1.7 m into it
+        self.assertEqual(btn.property("usable"), "true")
+        self.c._on_adjust(10.0)                                      # now 180 cm
+        btn.click()                                                  # instant: back to 170
+        self.assertEqual(self.osc.sent[-1], 170.0)
+
     def test_a_slots_action_is_set_saved_and_shown(self):
         self.make(profiles={"profile1": 140.0})
         self.window.slot_action_segs[1].changed.emit("instant")    # Settings
@@ -626,7 +647,7 @@ class ControllerTest(unittest.TestCase):
         self.assertTrue(self.c.transition.playing)
         self.assertTrue(self.window.go_instant_btn.isHidden())        # Stop | Pause now
         self.assertFalse(self.window.stop_btn.isHidden())
-        self.assertFalse(self.window.profile_load_btns[1].isEnabled())  # the target is fixed
+        self.assertEqual(self.window.profile_load_btns[1].property("usable"), "false")  # fixed
 
     def test_a_typed_target_reads_like_a_height(self):
         self.make(transition_target_cm=200)
@@ -787,6 +808,17 @@ class ControllerTest(unittest.TestCase):
         self.c._on_adjust(-1.0)
         self.assertEqual(self.osc.sent, [1.0])
 
+    def test_go_timed_from_1_cm(self):
+        # VRChat's 1 cm reads as 0.99999998 cm: it is still 1 cm, not "below
+        # the 1 cm minimum", so the transition can start from it
+        one_cm = struct.unpack("f", struct.pack("f", 0.01))[0]
+        self.make(transition_target_cm=119, transition_duration=5, transition_unit="s")
+        self.connect()
+        self.report(one_cm)
+        self.assertTrue(self.window.play_btn.isEnabled())
+        self.window.play_btn.click()
+        self.assertTrue(self.c.transition is not None and self.c.transition.playing)
+
     def test_at_1_cm_a_nudge_down_says_so(self):
         one_cm = struct.unpack("f", struct.pack("f", 0.01))[0]
         self.make()
@@ -802,7 +834,7 @@ class ControllerTest(unittest.TestCase):
         self.report(1.7)
         self.c._on_profile_load(1)
         self.assertEqual(self.osc.sent, [])
-        self.assertFalse(self.window.profile_load_btns[1].isEnabled())
+        self.assertEqual(self.window.profile_load_btns[1].property("usable"), "false")
 
     def test_corrupt_profile_values_are_ignored(self):
         self.make(profiles={"profile1": "abc", "profile2": None, "profile3": -5,

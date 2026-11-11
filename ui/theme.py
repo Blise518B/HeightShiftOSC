@@ -96,11 +96,11 @@ QPushButton#Step { padding: 6px 10px; min-width: 50px; }
 QPushButton#Slot[kind="instant"] { border-color: %(instant)s; color: %(instant)s; }
 QPushButton#Slot[kind="instant"]:hover, QPushButton#Slot[kind="instant"]:checked {
     background: %(instant_tint)s; border-color: %(instant)s; color: %(instant)s; }
-QPushButton#Slot[kind="instant"]:disabled { border-color: %(instant_mid)s; color: %(dim)s; }
+QPushButton#Slot[kind="instant"][usable="false"] { background: transparent; border-color: %(instant_mid)s; color: %(dim)s; }
 QPushButton#Slot[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
 QPushButton#Slot[kind="timed"]:hover, QPushButton#Slot[kind="timed"]:checked {
     background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
-QPushButton#Slot[kind="timed"]:disabled { border-color: %(timed_mid)s; color: %(dim)s; }
+QPushButton#Slot[kind="timed"][usable="false"] { background: transparent; border-color: %(timed_mid)s; color: %(dim)s; }
 QPushButton#Seg[kind="instant"]:checked { background: %(instant_tint)s; border-color: %(instant)s; color: %(instant)s; }
 QPushButton#Seg[kind="timed"]:checked { background: %(timed_tint)s; border-color: %(timed)s; color: %(timed)s; }
 QPushButton#ModeCurrent { padding: 4px 12px; font-weight: 650; }
@@ -154,6 +154,9 @@ QPushButton#Small { padding: 3px 12px; }
 QPushButton#Slot { font-family: "Cascadia Mono", Consolas, monospace; padding: 5px 8px; text-align: left;
                    min-height: 20px; max-height: 20px; }
 QPushButton#SlotSave { padding: 5px 7px; min-height: 20px; max-height: 20px; }
+/* a slot that can't be loaded now (empty, or the target is locked): it looks
+   inactive but stays enabled, so a right-click still reaches it */
+QPushButton#Slot[usable="false"] { background: transparent; border-color: %(green_mid)s; color: %(dim)s; }
 
 QAbstractSpinBox {
     background: %(well)s; border: 1px solid %(line)s; border-radius: %(r_input)spx; padding: 5px 8px;

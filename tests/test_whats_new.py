@@ -85,6 +85,9 @@ class LaunchTest(_tc.ControllerTest):
         self.assertEqual(self.dialog().pages.count(), len(whats_new.RELEASES))
 
     def test_take_me_there_opens_and_lights_the_place(self):
+        import ui.window as window_module
+        beats, window_module.SPOT_BEATS = window_module.SPOT_BEATS, ((0, True),)
+        self.addCleanup(setattr, window_module, "SPOT_BEATS", beats)  # lit, and it stays
         self.make(settings_open=False)
         self.window.show()
         self.window.show_whats_new([("9.9", [("T", "text", "updates", "")])])

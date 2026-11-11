@@ -48,6 +48,10 @@ class TestCheckWrite(unittest.TestCase):
     def test_refuses_instead_of_clamping(self):
         self.assertIn("limit", check_write(MAX_HEIGHT_CM + 0.1, False))
         self.assertIn("minimum", check_write(0.5, False))
+        # VRChat's 32-bit 1 cm (0.99999998 cm) is 1 cm, a real 0.999 cm is not
+        self.assertIsNone(check_write(0.009999999776482582 * 100, False))
+        self.assertIn("minimum", check_write(0.999, False))
+        self.assertIsNone(check_write(MAX_HEIGHT_CM * (1 + 1e-7), False))
         self.assertIsNotNone(check_write(0, False))
         self.assertIsNotNone(check_write(-5, True))
 

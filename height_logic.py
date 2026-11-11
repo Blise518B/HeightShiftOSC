@@ -51,6 +51,11 @@ def is_number(value) -> bool:
             and math.isfinite(value))
 
 
+# How far a height may sit past a limit and still count as at it: the
+# rounding of a 32-bit float near 1 cm (VRChat sends metres as float32).
+FLOAT_SLACK_CM = 1e-4
+
+
 def max_height_cm(unlocked: bool) -> float:
     return float(UNLOCKED_MAX_HEIGHT_CM if unlocked else MAX_HEIGHT_CM)
 
@@ -63,10 +68,14 @@ def check_write(cm, unlocked: bool) -> Optional[str]:
     """
     if not is_number(cm):
         return "not a number"
-    if cm < MIN_HEIGHT_CM:
+    # OSC carries metres as 32-bit floats: VRChat's "1 cm" arrives as
+    # 0.99999998 cm. A height within that rounding of a limit IS the limit
+    # (else, at 1 cm, Go timed refused "the current height is below 1 cm").
+    slack = max(FLOAT_SLACK_CM, abs(cm) * 1e-6)
+    if cm < MIN_HEIGHT_CM - slack:
         return f"below the {format_height(MIN_HEIGHT_CM)} minimum"
     top = max_height_cm(unlocked)
-    if cm > top:
+    if cm > top + slack:
         if unlocked:
             return f"above the {format_height(top)} maximum"
         return (f"above the {format_height(top)} limit "
@@ -108,10 +117,13 @@ def _trim(value: float, decimals: int) -> str:
 def format_height(cm: float) -> str:
     """Human-readable height in the unit that reads best: 173.4 cm, 12.5 m,
     1.25 km."""
-    if cm >= 100_000:
+    # The unit follows the ROUNDED value (999.96 cm is "10 m", never
+    # "1,000 cm"), and every unit shows down to the millimetre the app keeps
+    # (12.345 m, not 12.35 m — typed back, that would be 5 mm off).
+    if round(cm / 100, 3) >= 1_000:
         return f"{_trim(cm / 100_000, 3)} km"
-    if cm >= 1_000:
-        return f"{_trim(cm / 100, 2)} m"
+    if round(cm, 1) >= 1_000:
+        return f"{_trim(cm / 100, 3)} m"
     return f"{_trim(cm, 1)} cm"
 
 
@@ -135,10 +147,11 @@ def parse_height(text: str) -> Optional[float]:
 
 
 def format_height_alt(cm: float) -> str:
-    """The same height in the other unit, for the line under the big number."""
-    if cm >= 1_000:
-        return f"{_trim(cm, 1)} cm"
-    return f"{_trim(cm / 100, 3)} m"
+    """The same height in the other unit, for the line under the big number
+    (the other one than format_height picked, decided the same way)."""
+    if format_height(cm).endswith(" cm"):
+        return f"{_trim(cm / 100, 3)} m"
+    return f"{_trim(cm, 1)} cm"
 
 
 def describe_duration(seconds: float) -> str:

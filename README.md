@@ -7,7 +7,7 @@ steps, hold a key, or use its own menu in VRChat.
 **Website and download:** <https://blise518b.github.io/HeightShiftOSC/> ·
 [HeightShift.exe](https://github.com/Blise518B/HeightShiftOSC/releases/latest/download/HeightShift.exe)
 
-![HeightShift](docs/screenshot.png)
+![HeightShift: your height and the target on one picture, six saved heights, Go instant and Go timed, What's new and the VRChat menu](docs/preview.png)
 
 ## Features
 
@@ -163,6 +163,7 @@ python -m unittest discover -s tests
 | `whats_new.py`, `ui/whats_new.py` | What's new: the notes per release and the rule for when they show (pure data); its window. Add a release at the top of `RELEASES` |
 | `updater.py`, `ui/update_dialog.py` | the self-update (VRCParameterRelay's): ask GitHub, verified download, the swap helper; the update window (a pure view) |
 | `assets/menu/` | the VRChat menu's icons for Settings' mini guide (96 px copies, `tools/make_menu_icons.py --app-only`) |
+| `tools/make_preview.py` | draws `docs/preview.png` (this README's picture), `docs/site/og.png` (link previews) and `docs/site/app.png` from the app itself; re-run it when the window changes |
 | `docs/index.html`, `docs/site/` | the website (GitHub Pages from `/docs` on `main`): the download, what it does, the VRChat menu; `site/tokens.css` is a verbatim copy of `_hub\design\tokens.css`, `site/app.png` the app's default window |
 
 The OSC layer is transport only; whether a height VRChat reports can be trusted is decided in

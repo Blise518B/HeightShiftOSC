@@ -5,7 +5,7 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.25] - 2026-11-11
+## [2.0.26] - 2026-11-11
 
 ### Added
 - What's new (as in OscGoesPurrr): after an update the app shows once what changed — one page per
@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default), *Go instant* or *Go timed*; pressed, the other two unfold inside the card.
 
 ### Fixed
+- Go timed from 1 cm: VRChat's 32-bit 1 cm (0.99999998 cm) was refused as "below the 1 cm minimum".
+  A height within float rounding of a limit now is the limit, everywhere a height is checked.
+- An empty (or locked) saved height takes a right-click, so its action can be set before a height is
+  saved into it.
+- Heights read right at the unit edges: 999.96 cm shows "10 m" (was "1,000 cm"), metres show to the
+  millimetre (12.345 m, was 12.35 m, 5 mm off when typed back), and the line under the big number
+  always shows the other unit. tests/test_numbers.py runs every action from VRChat's float values.
 - The update window grows for its "Downloading…" line instead of squeezing the text above it.
 - A nudge past a limit stops at it instead of doing nothing: −100 at 85 cm goes to 1 cm, as in 1.x.
 - −1 at 2 cm reaches 1 cm: VRChat's 32-bit 2 cm is 1.99999995 cm, and 1 cm minus a hair was refused.

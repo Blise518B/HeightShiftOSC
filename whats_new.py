@@ -43,14 +43,15 @@ class Release(NamedTuple):
 
 
 RELEASES: Tuple[Release, ...] = (
-    Release("2.0.25", (
+    Release("2.0.26", (
         Item("Six saved heights",
              "Two more slots, three across in the Height panel.",
              "slots", icon="saved"),
         Item("One click to go",
              "Each saved height can go there at once (pink) or start the timed "
              "transition (yellow) instead of only becoming the target. Right-click "
-             "it, or Settings → Height. A pink 1 cm slot is one click from 1 cm.",
+             "it — an empty one too — or Settings → Height. A pink 1 cm slot is one "
+             "click from 1 cm.",
              "slot_actions", icon="load1"),
         Item("The same for the scale",
              "The button on top of the picture says what a click on the scale "
@@ -59,6 +60,10 @@ RELEASES: Tuple[Release, ...] = (
         Item("Nudges stop at the limit",
              "−100 at 85 cm goes straight to 1 cm, and −1 at 2 cm reaches 1 cm.",
              "", icon="shrink"),
+        Item("Exact at the edges",
+             "Go timed starts from 1 cm, and heights in metres show to the millimetre "
+             "(12.345 m) — VRChat's rounding no longer gets in the way.",
+             "", icon=""),
     )),
     Release("2.0.23", (
         Item("Number fields work again",
