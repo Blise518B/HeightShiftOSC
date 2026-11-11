@@ -73,6 +73,7 @@ def main() -> int:
                           DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
     window.show()
     controller.start()
+    controller.check_for_updates(__version__)      # GitHub, on a worker thread
     try:
         return app.exec()
     finally:

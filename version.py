@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import subprocess
 
-BASE_VERSION = "1.1"
+BASE_VERSION = "2.0"
 RELEASE_BRANCH = "main"
 
 

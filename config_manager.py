@@ -20,6 +20,9 @@ from typing import Any, Dict, Iterable
 from constants import (
     APP_NAME,
     DEFAULT_HIDE_CONSOLE,
+    DEFAULT_HOTKEY_SPEED,
+    DEFAULT_HOTKEY_SPEED_UNIT,
+    DEFAULT_HOTKEYS_ENABLED,
     DEFAULT_OSC_ROUTER_518,
     DEFAULT_PRESERVE_HEIGHT_ON_AVATAR,
     DEFAULT_STARTUP_HEIGHT_CM,
@@ -74,6 +77,12 @@ def default_config() -> Dict[str, Any]:
         "ui_mode": "neon",
         "text_scale": 1.0,
         "settings_open": True,
+        "hotkeys_enabled": DEFAULT_HOTKEYS_ENABLED,
+        "hotkeys_vrchat_only": True,
+        "hotkey_grow": {"vk": 0x6B, "mods": 0},      # numpad +
+        "hotkey_shrink": {"vk": 0x6D, "mods": 0},    # numpad -
+        "hotkey_speed": DEFAULT_HOTKEY_SPEED,
+        "hotkey_speed_unit": DEFAULT_HOTKEY_SPEED_UNIT,
     }
 
 

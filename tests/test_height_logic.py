@@ -3,22 +3,39 @@ import unittest
 
 from tests import _pathfix  # noqa: F401  (sys.path bootstrap)
 
-from constants import MAX_HEIGHT_CM, MIN_HEIGHT_CM, UNLOCKED_MAX_HEIGHT_CM
+from constants import (
+    MAX_HEIGHT_CM,
+    MENU_GROW,
+    MENU_LOAD,
+    MENU_PLAY,
+    MENU_SAVE,
+    MENU_SHRINK,
+    MENU_STOP,
+    MIN_HEIGHT_CM,
+    UNLOCKED_MAX_HEIGHT_CM,
+)
 from height_logic import (
     CURVE_LINEAR,
     CURVE_SCALE,
-    SLIDER_STEPS,
+    SPEED_CM,
+    SPEED_PERCENT,
     HeightHistory,
+    MenuInput,
     ReportGate,
     Transition,
+    check_range,
     check_write,
     describe_duration,
     format_duration,
     format_height,
+    hold_height,
+    parse_height,
     interpolate,
     reported_cm,
-    slider_cm,
-    slider_pos,
+    scale_decades,
+    scale_fraction,
+    scale_height,
+    tidy_height,
 )
 
 
@@ -136,6 +153,24 @@ class TestReportGate(unittest.TestCase):
         self.assertEqual(g.offer(1.0, 1.0, 170.0), 170.0)
 
 
+class TestHoldHeight(unittest.TestCase):
+    def test_percent_grows_by_the_same_share_every_second(self):
+        self.assertAlmostEqual(hold_height(170.0, 2.0, 5.0, SPEED_PERCENT, +1),
+                               170.0 * 1.05 ** 2)
+
+    def test_percent_shrink_takes_it_back_the_same_way(self):
+        up = hold_height(170.0, 3.0, 5.0, SPEED_PERCENT, +1)
+        self.assertAlmostEqual(hold_height(up, 3.0, 5.0, SPEED_PERCENT, -1), 170.0)
+
+    def test_cm_per_second(self):
+        self.assertAlmostEqual(hold_height(170.0, 1.5, 10.0, SPEED_CM, -1), 155.0)
+        self.assertAlmostEqual(hold_height(170.0, 1.5, 10.0, SPEED_CM, +1), 185.0)
+
+    def test_no_time_no_change(self):
+        self.assertEqual(hold_height(170.0, 0.0, 5.0, SPEED_PERCENT, +1), 170.0)
+        self.assertEqual(hold_height(170.0, -1.0, 5.0, SPEED_CM, +1), 170.0)
+
+
 class TestPreserveTarget(unittest.TestCase):
     def test_ignores_new_avatar_report_stamped_just_before_change(self):
         h = HeightHistory()
@@ -214,20 +249,139 @@ class TestTransition(unittest.TestCase):
         self.assertEqual(interpolate(1, 2, 5, CURVE_LINEAR), 2)
 
 
-class TestLogSlider(unittest.TestCase):
-    def test_ends_are_exact(self):
-        self.assertEqual(slider_cm(0, 1, 10_000), 1)
-        self.assertEqual(slider_cm(SLIDER_STEPS, 1, 10_000), 10_000)
-        self.assertEqual(slider_pos(1, 1, 10_000), 0)
-        self.assertEqual(slider_pos(10_000, 1, 10_000), SLIDER_STEPS)
+class TestParseHeight(unittest.TestCase):
+    """What the target field takes: what it shows, and what people type."""
 
-    def test_round_trip_is_close(self):
+    def test_units(self):
+        self.assertEqual(parse_height("170"), 170.0)            # a bare number is cm
+        self.assertEqual(parse_height("170 cm"), 170.0)
+        self.assertEqual(parse_height("1.7 m"), 170.0)
+        self.assertEqual(parse_height("50m"), 5000.0)
+        self.assertEqual(parse_height("1.25 km"), 125_000.0)
+        self.assertEqual(parse_height(" 12.5 M "), 1250.0)
+
+    def test_decimal_comma_and_thousands(self):
+        self.assertEqual(parse_height("1,7 m"), 170.0)
+        self.assertEqual(parse_height("1,234.5 cm"), 1234.5)
+
+    def test_what_the_field_shows_reads_back(self):
+        for cm in (1.0, 173.4, 999.9, 1250.0, 5000.0, 99_999.0, 125_000.0, 10_000_000.0):
+            self.assertAlmostEqual(parse_height(format_height(cm)), cm, places=6)
+
+    def test_not_a_height(self):
+        for text in ("", "m", "abc", "1.2.3 m", "5 ft", "-3 cm"):
+            self.assertIsNone(parse_height(text))
+
+
+class TestCheckRange(unittest.TestCase):
+    """The height scale's MIN and MAX, as typed on the scale or in Settings."""
+
+    def test_a_good_range(self):
+        self.assertIsNone(check_range(1, 10_000, False))
+        self.assertIsNone(check_range(50, 2000, False))
+        self.assertIsNone(check_range(1, 10_000_000, True))
+
+    def test_refused_never_clamped(self):
+        self.assertIn("limit", check_range(1, 50_000, False))
+        self.assertIn("Unlock", check_range(1, 50_000, False))
+        self.assertIn("maximum", check_range(1, 20_000_000, True))
+        self.assertIn("minimum", check_range(0.5, 100, False))
+        self.assertIn("below the top", check_range(500, 500, False))
+        self.assertIn("below the top", check_range(800, 500, False))
+        self.assertEqual(check_range(None, 500, False), "not a height")
+
+
+class TestHeightScale(unittest.TestCase):
+    """The log scale beside the figure, which is the height slider."""
+
+    def test_ends_are_exact(self):
+        self.assertEqual(scale_height(0.0, 1, 10_000), 1)
+        self.assertEqual(scale_height(1.0, 1, 10_000), 10_000)
+        self.assertEqual(scale_fraction(1, 1, 10_000), 0.0)
+        self.assertEqual(scale_fraction(10_000, 1, 10_000), 1.0)
+
+    def test_every_decade_gets_the_same_room(self):
+        self.assertAlmostEqual(scale_fraction(10, 1, 10_000), 0.25)
+        self.assertAlmostEqual(scale_fraction(1000, 1, 10_000), 0.75)
+        self.assertAlmostEqual(scale_fraction(1_000_000, 1, 10_000_000), 6 / 7)
+
+    def test_round_trip_is_close_and_tidy(self):
         for cm in (5, 50, 170, 1700, 9000):
-            back = slider_cm(slider_pos(cm, 1, 10_000), 1, 10_000)
+            back = scale_height(scale_fraction(cm, 1, 10_000), 1, 10_000)
             self.assertLess(abs(back - cm) / cm, 0.01)
+        self.assertEqual(scale_height(scale_fraction(234.567, 1, 10_000), 1, 10_000), 235.0)
 
     def test_out_of_range_is_pinned(self):
-        self.assertEqual(slider_pos(50_000, 1, 10_000), SLIDER_STEPS)
+        self.assertEqual(scale_fraction(50_000, 1, 10_000), 1.0)
+        self.assertEqual(scale_fraction(0.5, 1, 10_000), 0.0)
+        self.assertEqual(scale_height(1.7, 1, 10_000), 10_000)
+        self.assertEqual(scale_height(-3, 1, 10_000), 1)
+
+    def test_tidy_heights(self):
+        self.assertEqual(tidy_height(234.567), 235.0)
+        self.assertEqual(tidy_height(5123.4), 5120.0)
+        self.assertEqual(tidy_height(1.234), 1.23)
+
+    def test_decades(self):
+        self.assertEqual(scale_decades(1, 10_000), [1.0, 10.0, 100.0, 1000.0, 10_000.0])
+        self.assertEqual(scale_decades(30, 2000), [100.0, 1000.0])
+
+
+class TestMenuInput(unittest.TestCase):
+    """The in-VRChat menu's parameters -> what the app does."""
+
+    def setUp(self):
+        self.m = MenuInput(guard_s=1.0, debounce_s=0.15)
+
+    def test_held_buttons_report_down_and_up(self):
+        self.assertEqual(self.m.offer(MENU_GROW, True, 10.0), ("grow", 1))
+        self.assertTrue(self.m.held["grow"])
+        self.assertEqual(self.m.offer(MENU_GROW, False, 12.0), ("grow", 0))
+        self.assertFalse(self.m.held["grow"])
+        self.assertEqual(self.m.offer(MENU_SHRINK, True, 13.0), ("shrink", 1))
+
+    def test_one_shot_buttons_act_on_the_press_only(self):
+        self.assertEqual(self.m.offer(MENU_PLAY, True, 10.0), ("play", 0))
+        self.assertIsNone(self.m.offer(MENU_PLAY, False, 10.3))
+        self.assertEqual(self.m.offer(MENU_STOP, 1, 11.0), ("stop", 0))
+
+    def test_slot_buttons_carry_their_number(self):
+        self.assertEqual(self.m.offer(MENU_LOAD, 3, 10.0), ("load", 3))
+        self.assertIsNone(self.m.offer(MENU_LOAD, 0, 10.2))
+        self.assertEqual(self.m.offer(MENU_SAVE, 2, 11.0), ("save", 2))
+        self.assertEqual(self.m.offer(MENU_SAVE, 4, 11.1), ("save", 4))   # 2 -> 4 at once
+
+    def test_the_routers_second_copy_is_not_a_second_press(self):
+        # with the 518 router every packet arrives twice, a few ms apart
+        self.assertEqual(self.m.offer(MENU_LOAD, 1, 10.000), ("load", 1))
+        self.assertIsNone(self.m.offer(MENU_LOAD, 1, 10.002))
+        self.assertIsNone(self.m.offer(MENU_LOAD, 0, 10.040))
+        self.assertIsNone(self.m.offer(MENU_LOAD, 1, 10.042))         # late copy of the tap
+        self.assertIsNone(self.m.offer(MENU_LOAD, 0, 10.044))
+        self.assertEqual(self.m.offer(MENU_LOAD, 1, 10.5), ("load", 1))  # a real second press
+
+    def test_nothing_acts_while_a_new_avatar_loads(self):
+        self.m.on_avatar_change(20.0)
+        self.assertIsNone(self.m.offer(MENU_PLAY, True, 20.2))
+        self.assertIsNone(self.m.offer(MENU_GROW, True, 20.3))
+        self.assertFalse(self.m.held["grow"])
+        self.assertEqual(self.m.offer(MENU_GROW, False, 20.4), ("grow", 0))  # a release counts
+        self.assertEqual(self.m.offer(MENU_PLAY, False, 21.5), None)
+        self.assertEqual(self.m.offer(MENU_PLAY, True, 21.8), ("play", 0))
+
+    def test_avatar_change_and_reset_let_go(self):
+        self.m.offer(MENU_GROW, True, 10.0)
+        self.m.on_avatar_change(11.0)
+        self.assertFalse(self.m.held["grow"])
+        self.m.offer(MENU_SHRINK, True, 13.0)
+        self.m.reset()
+        self.assertFalse(self.m.held["shrink"])
+
+    def test_other_parameters_and_bad_values_are_ignored(self):
+        self.assertIsNone(self.m.offer("HeightShift/Nope", True, 10.0))
+        self.assertIsNone(self.m.offer("VRCEmote", 3, 10.0))
+        self.assertIsNone(self.m.offer(MENU_LOAD, "2", 10.0))
+        self.assertIsNone(self.m.offer(MENU_LOAD, float("nan"), 10.0))
 
 
 if __name__ == "__main__":

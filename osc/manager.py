@@ -51,6 +51,7 @@ from constants import (
     HEALTH_CHECK_INTERVAL_S,
     LOG_FILE_MAX_BYTES,
     LOG_FILE_NAME,
+    MENU_PREFIX,
     SILENT_REPROBE_S,
     SILENT_REREGISTER_S,
     SILENT_RETRY_INTERVAL_S,
@@ -62,6 +63,9 @@ from constants import (
 )
 
 from .diag_log import DiagLog
+
+PARAMETERS = "/avatar/parameters/"
+MENU_ADDRESS = PARAMETERS + MENU_PREFIX          # /avatar/parameters/HeightShift/
 from .oscquery import LOOPBACK, PhonebookServer, host_info, node_value, tree
 
 logger = logging.getLogger(__name__)
@@ -101,6 +105,8 @@ class VRChatOSCManager:
         self.on_disconnected: Optional[Callable[[], None]] = None
         self.on_height_received: Optional[Callable[[float, float], None]] = None  # m, seen at
         self.on_avatar_change: Optional[Callable[[str, float], None]] = None      # id, seen at
+        # HeightShift's own menu parameters (constants.MENU_*): name, value, seen at
+        self.on_menu_parameter: Optional[Callable[[str, Any, float], None]] = None
 
         # --- VRChat ---
         self.vrc_ip = LOOPBACK                 # always: every socket here is loopback-only
@@ -603,6 +609,10 @@ class VRChatOSCManager:
                 cb = self.on_avatar_change
                 if cb is not None:
                     cb(avatar_id, seen_at)
+            elif address.startswith(MENU_ADDRESS) and args:
+                cb = self.on_menu_parameter
+                if cb is not None:
+                    cb(address[len(PARAMETERS):], args[0], seen_at)
         except Exception as e:
             # Never let one bad packet stop the receive thread.
             self._handler_errors += 1
@@ -633,6 +643,29 @@ class VRChatOSCManager:
             return None
         self._log(f"GET {VRCHAT_OSC_PATH} = {meters} m")
         return meters, asked_at
+
+    def has_menu(self) -> Optional[bool]:
+        """Does the avatar in VRChat have HeightShift's menu? Asks VRChat's
+        OSCQuery tree for /avatar/parameters/HeightShift: True / False, or
+        None when VRChat couldn't be asked."""
+        port = self.http_port
+        if not self.is_connected or not port:
+            return None
+        path = MENU_ADDRESS.rstrip("/")
+        try:
+            r = requests.get(f"http://{LOOPBACK}:{port}{path}", timeout=VRCHAT_HTTP_TIMEOUT)
+        except Exception as e:
+            self._log(f"GET {path} failed: {type(e).__name__}: {e}")
+            return None
+        if r.status_code == 404:
+            return False
+        if r.status_code != 200:
+            self._log(f"GET {path}: HTTP {r.status_code} {r.text[:200]!r}")
+            return None
+        try:
+            return bool(r.json().get("CONTENTS"))
+        except Exception:
+            return None
 
     def send_height(self, height_cm: float) -> bool:
         """Send a height in cm (as metres). True only if the packet left. No

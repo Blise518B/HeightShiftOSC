@@ -25,6 +25,9 @@ _NEON_SECTION_BAR = "#1c8a3d"
 
 TEXT_SCALES = (0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0)
 
+# How opaque the size comparison's TARGET shadow is (the accent at this alpha).
+SHADOW_ALPHA = 0.26
+
 # The project folder (fonts/, the icon), or PyInstaller's unpack folder.
 _ROOT = getattr(sys, "_MEIPASS",
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,32 +48,66 @@ QLabel#SectionTitle {
     font-size: 14px; font-weight: 700; padding: 4px 10px; border-radius: %(r_gh)spx;
 }
 QLabel#PanelTitle { color: %(accent)s; font-size: 14px; font-weight: 700; }
+QFrame#Comparison { background: %(card)s; border: 1px solid %(line)s; border-radius: %(r_card)spx; }
+QLabel#Micro { color: %(dim)s; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+QLabel#KeyNow { border: 2px solid %(accent)s; border-radius: 5px; background: transparent; }
+QLabel#KeyTarget { border: none; border-radius: 5px; background: %(shadow)s; }
 QLabel#HeroValue {
     font-family: "Cascadia Mono", Consolas, monospace;
-    font-size: 30px; font-weight: 600; color: %(txt)s;
+    font-size: 28px; font-weight: 600; color: %(txt)s;
 }
-QLabel#HeroValue[known="false"] { color: %(dim)s; font-size: 24px; }
+QLabel#HeroValue[known="false"] { color: %(dim)s; font-size: 22px; }
 QLabel#HeroSub { color: %(muted)s; font-size: 12px; }
+QLabel#TargetValue {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 22px; font-weight: 600; color: %(txt)s;
+}
+QLabel#TargetNote { color: %(muted)s; font-size: 12px; }
+QLabel#TargetNote[state="run"] { color: %(run)s; }
+QLabel#TargetNote[state="warn"] { color: %(warn)s; }
+QLabel#RatioValue {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 20px; font-weight: 600; color: %(accent)s;
+}
+QLabel#RatioValue[same="true"] { color: %(muted)s; }
+QLabel#RatioValue[long="true"] { font-size: 15px; }
+QLabel#RatioWord { color: %(dim)s; font-size: 12px; }
 QLabel#FieldLabel { color: %(muted)s; }
 QLabel#RangeLabel { color: %(dim)s; font-size: 11px; }
 QLabel#TransitionStatus { color: %(muted)s; font-size: 12px; }
 QLabel#TransitionStatus[state="run"] { color: %(run)s; }
 QLabel#TransitionStatus[state="warn"] { color: %(warn)s; }
-QLabel#ProfileName { color: %(muted)s; }
-QLabel#ProfileValue { font-family: "Cascadia Mono", Consolas, monospace; color: %(txt)s; }
-QLabel#ProfileValue[empty="true"] { color: %(dim)s; }
 QLabel#StatusMsg { color: %(muted)s; font-size: 11px; }
 QLabel#IdentityTag { color: %(dim)s; font-size: 11px; }
 QLabel#PortsLine { color: %(muted)s; font-size: 12px; }
+QLabel#MenuLinks { font-size: 12px; }
+QPushButton#UpdateChip { background: %(upd_tint)s; border: 1px solid %(upd_mid)s; border-radius: 10px;
+    padding: 0px 10px; color: %(upd)s; font-size: 11px; font-weight: 700; min-height: 20px; max-height: 20px; }
+QPushButton#UpdateChip:hover { border-color: %(upd)s; }
+QLabel#UpdateStatus { color: %(muted)s; font-size: 12px; }
+QLabel#MenuGuideLine { color: %(muted)s; font-size: 12px; }
 QLabel#Chip { min-height: 20px; max-height: 20px; }
 
-QPushButton#Step { padding: 6px 4px; min-width: 50px; }
-QPushButton#Seg { padding: 5px 12px; }
+QPushButton#Step { padding: 6px 10px; min-width: 50px; }
+QPushButton#Seg { padding: 5px 12px; min-height: 20px; max-height: 20px; }
+QLineEdit#ScaleEdit {
+    padding: 1px 5px; font-size: 13px; font-weight: 700; border-color: %(accent)s;
+    min-height: 22px; max-height: 22px;
+}
+QLineEdit#ScaleEdit[bad="true"] { border-color: %(warn)s; }
+QPushButton#Refresh { border-color: transparent; color: %(muted)s; font-size: 16px; padding: 0px 7px; }
+QPushButton#Refresh:hover { border-color: %(line)s; color: %(accent)s; }
 QPushButton#Ghost { padding: 5px 10px; }
 QPushButton#Icon { padding: 3px 9px; font-size: 15px; }
 QPushButton#Small { padding: 3px 12px; }
+QPushButton#Slot { font-family: "Cascadia Mono", Consolas, monospace; padding: 5px 8px; text-align: left;
+                   min-height: 20px; max-height: 20px; }
+QPushButton#SlotSave { padding: 5px 7px; min-height: 20px; max-height: 20px; }
 
-QAbstractSpinBox { background: %(well)s; border: 1px solid %(line)s; border-radius: %(r_input)spx; padding: 5px 8px; }
+QAbstractSpinBox {
+    background: %(well)s; border: 1px solid %(line)s; border-radius: %(r_input)spx; padding: 5px 8px;
+    min-height: 20px; max-height: 20px;
+}
 QAbstractSpinBox:focus { border-color: %(accent)s; }
 QAbstractSpinBox:disabled, QPushButton:disabled { color: %(dim)s; }
 QPushButton#Primary:disabled { background: transparent; border-color: %(green_mid)s; color: %(dim)s; }
@@ -104,6 +141,8 @@ QSlider::handle:horizontal:disabled { background: %(green_mid)s; }
 """
 
 _FONT_SIZE_RE = re.compile(r"font-size:\s*(\d+(?:\.\d+)?)px")
+# heights pinned in px grow with the text too, or a pill / spin box clips it
+_HEIGHT_RE = re.compile(r"(min-height|max-height):\s*(\d+(?:\.\d+)?)px")
 
 
 def mode() -> str:
@@ -121,6 +160,12 @@ def colors() -> Dict[str, str]:
         v["catbar"], v["catbar_text"] = _NEON_SECTION_BAR, v["txt"]
     else:
         v["catbar"], v["catbar_text"] = v["tint"], v["accent"]
+    # the updater's orange (design-518.md: updaters, nags, pending installs)
+    v["upd"], v["upd_mid"], v["upd_tint"] = T.PALETTE["orange"]
+    # the size comparison's target shadow (ui/figure.py), for its colour key
+    a = v["accent"].lstrip("#")
+    v["shadow"] = (f"rgba({int(a[0:2], 16)}, {int(a[2:4], 16)}, {int(a[4:6], 16)}, "
+                   f"{round(SHADOW_ALPHA * 255)})")
     return v
 
 
@@ -130,6 +175,8 @@ def app_qss() -> str:
     if abs(_scale - 1.0) > 1e-3:
         qss = _FONT_SIZE_RE.sub(
             lambda m: f"font-size: {max(8, round(float(m.group(1)) * _scale))}px", qss)
+        qss = _HEIGHT_RE.sub(
+            lambda m: f"{m.group(1)}: {round(float(m.group(2)) * _scale)}px", qss)
     return qss
 
 

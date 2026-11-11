@@ -9,7 +9,8 @@ unit-tested on its own (tests/test_height_logic.py):
                            base of the next relative step
   * HeightHistory        — which height to restore after an avatar change
   * Transition           — the slow transition's clock and curve
-  * slider_pos/slider_cm — the logarithmic slider mapping
+  * scale_fraction/scale_height — the logarithmic height scale beside the figure
+  * MenuInput            — the in-VRChat menu's buttons, as VRChat reports them
 
 The one rule behind all of it: what the app READS is never changed (no
 clamping, no rounding) — the avatar's real height is the truth — and what it
@@ -19,12 +20,21 @@ WRITES is checked, never silently clamped into something else.
 from __future__ import annotations
 
 import math
+import re
 from collections import deque
-from typing import Deque, Optional, Tuple
+from typing import Deque, Dict, Optional, Tuple
 
 from constants import (
     ECHO_HOLD_S,
     MAX_HEIGHT_CM,
+    MENU_AVATAR_GUARD_S,
+    MENU_DEBOUNCE_S,
+    MENU_GROW,
+    MENU_LOAD,
+    MENU_PLAY,
+    MENU_SAVE,
+    MENU_SHRINK,
+    MENU_STOP,
     MIN_HEIGHT_CM,
     PRESERVE_REPORT_GUARD_S,
     UNLOCKED_MAX_HEIGHT_CM,
@@ -103,6 +113,25 @@ def format_height(cm: float) -> str:
     if cm >= 1_000:
         return f"{_trim(cm / 100, 2)} m"
     return f"{_trim(cm, 1)} cm"
+
+
+_HEIGHT_TEXT = re.compile(r"(\d+(?:\.\d*)?|\.\d+)(cm|m|km)?")
+_UNIT_CM = {"cm": 1.0, "m": 100.0, "km": 100_000.0}
+
+
+def parse_height(text: str) -> Optional[float]:
+    """A typed height in cm, or None: "170", "170 cm", "1.7 m", "1,7 m"
+    (a decimal comma too), "1.25 km". A bare number is cm. "1,234.5 cm"
+    reads the comma as a thousands mark, since it has a point as well."""
+    t = re.sub(r"\s+", "", str(text)).lower()
+    if "," in t and "." in t:
+        t = t.replace(",", "")
+    else:
+        t = t.replace(",", ".")
+    m = _HEIGHT_TEXT.fullmatch(t)
+    if m is None:
+        return None
+    return float(m.group(1)) * _UNIT_CM[m.group(2) or "cm"]
 
 
 def format_height_alt(cm: float) -> str:
@@ -328,37 +357,185 @@ class Transition:
 
 
 # ----------------------------------------------------------------------
-# Logarithmic slider
+# Hold-to-grow hotkeys
 # ----------------------------------------------------------------------
-# 1 cm .. 100 m is four decades. On a linear slider every pixel was ~30 cm;
-# on a log slider each decade gets the same width, so 170 cm is as easy to
-# hit as 17 m.
 
-SLIDER_STEPS = 1000
+SPEED_PERCENT = "pct"   # the same share of the height every second (looks even)
+SPEED_CM = "cm"         # the same number of cm every second
+SPEED_UNITS = (SPEED_PERCENT, SPEED_CM)
 
 
-def _slider_bounds(lo: float, hi: float) -> Tuple[float, float]:
+def hold_height(base_cm: float, seconds: float, speed: float, unit: str,
+                direction: int) -> float:
+    """The height after holding the grow (+1) or shrink (-1) key for
+    `seconds`, starting from `base_cm`. Computed from the start of the hold,
+    never step by step, so no rounding piles up however long it is held.
+
+    Percent shrinks by dividing, so growing and then shrinking for the same
+    time lands back where it started. Not bounded here: the caller keeps it
+    inside the limits."""
+    t = max(0.0, float(seconds))
+    if unit == SPEED_CM:
+        return base_cm + direction * speed * t
+    factor = (1.0 + speed / 100.0) ** t
+    return base_cm * factor if direction > 0 else base_cm / factor
+
+
+# ----------------------------------------------------------------------
+# The height scale (logarithmic)
+# ----------------------------------------------------------------------
+# The scale beside the figure is the height slider. 1 cm .. 100 m is four
+# decades (100 km: seven); on a log scale each decade gets the same room, so
+# 170 cm is as easy to hit as 17 m. Its ends are the slider range.
+
+
+def _scale_bounds(lo: float, hi: float) -> Tuple[float, float]:
     lo = max(float(MIN_HEIGHT_CM), float(lo))
     hi = max(lo + 1.0, float(hi))
     return lo, hi
 
 
-def slider_pos(cm: float, lo: float, hi: float) -> int:
-    lo, hi = _slider_bounds(lo, hi)
+def scale_fraction(cm: float, lo: float, hi: float) -> float:
+    """Where `cm` sits on the scale: 0 at `lo`, 1 at `hi`, pinned to the ends."""
+    lo, hi = _scale_bounds(lo, hi)
     cm = min(hi, max(lo, float(cm)))
-    span = math.log(hi) - math.log(lo)
-    return int(round((math.log(cm) - math.log(lo)) / span * SLIDER_STEPS))
+    return (math.log(cm) - math.log(lo)) / (math.log(hi) - math.log(lo))
 
 
-def slider_cm(pos: int, lo: float, hi: float) -> float:
-    """Slider position -> height, rounded to a whole centimetre (the ends
-    are exactly lo and hi)."""
-    lo, hi = _slider_bounds(lo, hi)
-    pos = min(SLIDER_STEPS, max(0, int(pos)))
-    if pos == 0:
+def tidy_height(cm: float, digits: int = 3) -> float:
+    """A dragged height to three significant digits (2.3456 m -> 2.35 m), so
+    what gets set reads as it was meant."""
+    if not is_number(cm) or cm <= 0:
+        return cm
+    return round(float(cm), digits - 1 - math.floor(math.log10(cm)))
+
+
+def scale_height(fraction: float, lo: float, hi: float) -> float:
+    """The height at a place on the scale: exactly `lo` and `hi` at the ends,
+    tidied in between (and never outside them)."""
+    lo, hi = _scale_bounds(lo, hi)
+    f = min(1.0, max(0.0, float(fraction)))
+    if f <= 0.0:
         return lo
-    if pos == SLIDER_STEPS:
+    if f >= 1.0:
         return hi
-    span = math.log(hi) - math.log(lo)
-    value = math.exp(math.log(lo) + span * pos / SLIDER_STEPS)
-    return float(min(hi, max(lo, round(value))))
+    value = math.exp(math.log(lo) + f * (math.log(hi) - math.log(lo)))
+    return float(min(hi, max(lo, tidy_height(value))))
+
+
+def check_range(lo, hi, unlocked: bool) -> Optional[str]:
+    """None when the height scale may run from `lo` to `hi` (its MIN and
+    MAX), otherwise why not. Never clamps, like check_write."""
+    if not (is_number(lo) and is_number(hi)):
+        return "not a height"
+    if lo < MIN_HEIGHT_CM:
+        return f"the bottom is below the {format_height(MIN_HEIGHT_CM)} minimum"
+    top = max_height_cm(unlocked)
+    if hi > top:
+        if unlocked:
+            return f"the top is above the {format_height(top)} maximum"
+        return (f"the top is above the {format_height(top)} limit "
+                "(tick “Unlock upper limit” to go higher)")
+    if lo >= hi:
+        return "the bottom has to be below the top"
+    return None
+
+
+def scale_decades(lo: float, hi: float):
+    """The powers of ten inside the range, for the scale's ticks."""
+    lo, hi = _scale_bounds(lo, hi)
+    out, e = [], math.floor(math.log10(lo))
+    while 10.0 ** e <= hi * 1.0001:
+        if 10.0 ** e >= lo * 0.9999:
+            out.append(float(10.0 ** e))
+        e += 1
+    return out
+
+
+# ----------------------------------------------------------------------
+# The in-VRChat menu
+# ----------------------------------------------------------------------
+
+MENU_KINDS = {MENU_GROW: "grow", MENU_SHRINK: "shrink", MENU_PLAY: "play",
+              MENU_STOP: "stop", MENU_LOAD: "load", MENU_SAVE: "save"}
+MENU_HELD = ("grow", "shrink")
+
+
+def _menu_level(value) -> Optional[int]:
+    """A menu parameter's value as an int: Bools 0 / 1, Ints as they are."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return int(round(value))
+    return None
+
+
+class MenuInput:
+    """Turns the HeightShift menu's avatar parameters, as VRChat reports
+    them, into what the app should do.
+
+    A Button in VRChat's menu sets its parameter while it is held and puts
+    it back to 0 when let go, so:
+      * Grow and Shrink are held: `held` says which are down right now, and
+        offer() reports each going down or up ("grow", 1) / ("grow", 0).
+      * Play, Stop, Load N and Save N act once, when pressed: ("play", 0),
+        ("stop", 0), ("load", N), ("save", N).
+
+    Two kinds of report are not presses and are dropped:
+      * anything within `guard_s` of an avatar change: VRChat reports every
+        parameter while the new avatar loads (the menu's are unsaved, so
+        they should read 0, but a stale 1 must never act);
+      * a press within `debounce_s` of the same button's release: with the
+        518 router on, every packet arrives twice, and the second copy of a
+        quick tap can land after its release.
+    A release always counts, so a held button can never get stuck.
+    """
+
+    def __init__(self, guard_s: float = MENU_AVATAR_GUARD_S,
+                 debounce_s: float = MENU_DEBOUNCE_S):
+        self.guard_s = guard_s
+        self.debounce_s = debounce_s
+        self._values: Dict[str, int] = {}
+        self._released_at: Dict[str, float] = {}
+        self._quiet_until = -math.inf
+        self.held = {kind: False for kind in MENU_HELD}
+
+    def reset(self) -> None:
+        """VRChat went away: nothing is held any more."""
+        self._values.clear()
+        self._released_at.clear()
+        self.held = {kind: False for kind in MENU_HELD}
+
+    def on_avatar_change(self, at: float) -> None:
+        """The menu closes with the old avatar and its parameters reset."""
+        self.reset()
+        self._quiet_until = at + self.guard_s
+
+    def offer(self, name: str, value, seen_at: float) -> Optional[Tuple[str, int]]:
+        kind = MENU_KINDS.get(name)
+        level = _menu_level(value)
+        if kind is None or level is None:
+            return None
+        old = self._values.get(name, 0)
+        self._values[name] = level
+        if level == old:
+            return None                       # a repeat (the router's copy)
+        if level == 0:
+            self._released_at[name] = seen_at
+            if kind in MENU_HELD:
+                self.held[kind] = False
+                return kind, 0
+            return None
+        # a press (for Load / Save also 2 -> 3 straight away)
+        if seen_at < self._quiet_until:
+            return None
+        if seen_at - self._released_at.get(name, -math.inf) < self.debounce_s:
+            return None
+        if kind in MENU_HELD:
+            self.held[kind] = True
+            return kind, 1
+        if kind in ("load", "save"):
+            return kind, level
+        return kind, 0

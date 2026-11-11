@@ -4,11 +4,14 @@ No app logic here — only how things look and the signals they emit."""
 
 from __future__ import annotations
 
+import re
 from typing import Callable, Dict, Optional, Tuple
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QDoubleSpinBox,
     QButtonGroup,
     QFrame,
     QHBoxLayout,
@@ -19,12 +22,40 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from height_logic import format_height, parse_height
+
 
 def restyle(widget: QWidget) -> None:
     """Re-apply the stylesheet after a dynamic property changed."""
     widget.style().unpolish(widget)
     widget.style().polish(widget)
     widget.update()
+
+
+def save_icon(color: str, px: int):
+    """An arrow going down into a tray (the VRChat menu's Save icon, small):
+    (QIcon, its size). Drawn at twice the size for sharp edges."""
+    px = max(10, int(px))
+    big = px * 2
+    pix = QPixmap(big, big)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor(color), big * 0.11, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    u = big / 16.0
+    tray = QPainterPath(QPointF(2 * u, 9 * u))
+    tray.lineTo(QPointF(2 * u, 14 * u))
+    tray.lineTo(QPointF(14 * u, 14 * u))
+    tray.lineTo(QPointF(14 * u, 9 * u))
+    p.drawPath(tray)
+    p.drawLine(QPointF(8 * u, 1.5 * u), QPointF(8 * u, 10 * u))
+    head = QPainterPath(QPointF(4.5 * u, 6.8 * u))
+    head.lineTo(QPointF(8 * u, 10.3 * u))
+    head.lineTo(QPointF(11.5 * u, 6.8 * u))
+    p.drawPath(head)
+    p.end()
+    pix.setDevicePixelRatio(2.0)
+    return QIcon(pix), px
 
 
 def vbox(margin: int = 0, spacing: int = 6) -> QVBoxLayout:
@@ -105,6 +136,35 @@ def no_buttons(spin: QAbstractSpinBox) -> QAbstractSpinBox:
     return spin
 
 
+class HeightSpinBox(QDoubleSpinBox):
+    """A height field that reads like the rest of the app — 170 cm, 12.5 m,
+    1.25 km — and takes the same when typed (a bare number is cm; a decimal
+    comma works too). A height outside the field's range is never clamped
+    into it: the text stays unaccepted and the old value comes back."""
+
+    _PARTIAL = re.compile(r"[0-9.,\s]*(c|cm|m|k|km)?\s*")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDecimals(1)
+        self.setStepType(QAbstractSpinBox.AdaptiveDecimalStepType)
+
+    def textFromValue(self, value: float) -> str:  # noqa: N802
+        return format_height(value)
+
+    def valueFromText(self, text: str) -> float:  # noqa: N802
+        value = parse_height(text)
+        return self.value() if value is None else value
+
+    def validate(self, text: str, pos: int):
+        value = parse_height(text)
+        if value is not None and self.minimum() <= value <= self.maximum():
+            return QValidator.Acceptable, text, pos
+        if self._PARTIAL.fullmatch(text.lower()) or value is not None:
+            return QValidator.Intermediate, text, pos
+        return QValidator.Invalid, text, pos
+
+
 class Segmented(QWidget):
     """A few mutually exclusive choices as buttons (one click, no dropdown)."""
 
@@ -142,6 +202,72 @@ class Segmented(QWidget):
         btn = self._buttons.get(key)
         if btn is not None:
             btn.setChecked(True)
+
+
+_MODIFIER_QT_KEYS = (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta, Qt.Key_AltGr,
+                     Qt.Key_CapsLock, Qt.Key_NumLock, Qt.Key_ScrollLock)
+
+
+class KeyCaptureButton(QPushButton):
+    """Shows a key; click it, then press the key (with Ctrl / Shift / Alt if
+    wanted) to change it. Esc or clicking elsewhere cancels.
+
+    Emits the Windows virtual-key code and MOD_CTRL 1 | MOD_SHIFT 2 | MOD_ALT 4
+    — what hotkeys.Hotkey stores. `capturing` lets the owner pause the hotkeys
+    themselves meanwhile, so setting a key doesn't also fire it."""
+
+    captured = Signal(int, int)      # vk, mods
+    capturing_changed = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("Small")
+        self.setCursor(Qt.PointingHandCursor)
+        self.capturing = False
+        self._key_text = ""
+        self.clicked.connect(self._start)
+
+    def set_key_text(self, text: str) -> None:
+        self._key_text = text
+        if not self.capturing:
+            self.setText(text)
+
+    def _start(self) -> None:
+        if self.capturing:
+            return
+        self.capturing = True
+        self.setText("press a key…")
+        self.grabKeyboard()
+        self.capturing_changed.emit(True)
+
+    def _stop(self) -> None:
+        if not self.capturing:
+            return
+        self.releaseKeyboard()
+        self.capturing = False
+        self.setText(self._key_text)
+        self.capturing_changed.emit(False)
+
+    def keyPressEvent(self, event):  # noqa: N802
+        if not self.capturing:
+            super().keyPressEvent(event)
+            return
+        if event.key() == Qt.Key_Escape:
+            self._stop()
+            return
+        vk = int(event.nativeVirtualKey())
+        if event.key() in _MODIFIER_QT_KEYS or not vk:
+            return                    # a modifier alone: wait for the real key
+        held = event.modifiers()
+        mods = ((1 if held & Qt.ControlModifier else 0)
+                | (2 if held & Qt.ShiftModifier else 0)
+                | (4 if held & Qt.AltModifier else 0))
+        self._stop()
+        self.captured.emit(vk, mods)
+
+    def focusOutEvent(self, event):  # noqa: N802
+        self._stop()
+        super().focusOutEvent(event)
 
 
 class CtrlWheelZoom(QObject):

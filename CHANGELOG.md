@@ -5,6 +5,57 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0] - 2026-11-11
+
+A reworked window around one idea: pick a target, then go there instantly or over time.
+
+### Added
+- The figure: your height and the target as two copies of the same figure (OscGoesPurrr's Suits cat
+  girl), one in front of the other — the target a soft shadow behind, your height bright lines in
+  front — standing on a logarithmic height scale with their eyes at their height (VRChat's height is eye
+  height): the height line runs up to each head and on past it, and a faint dotted line crosses the
+  face. The ratio is written out.
+  They ease smoothly (and quickly: settled in about 0.2 s) on every click, transition step and held
+  key; the pointer, the ring, their height lines and the height number are at the new height at once,
+  and she grows into it. Everything on the scale can be grabbed from well off it (VR-sized: the
+  pointer 16 px above or below, a head line 10 px, the scale 18 px to its left).
+- The height scale picks the target: click or drag anywhere along it, drag its pointer, or pull either
+  head up or down (a dashed line with the height follows the mouse first). Picking never sends — Go
+  instant or Go timed does; the ring on it only shows where you are. Its ends are the range (MIN / MAX,
+  LIMIT at the cap) — click either number to type a new one right there; the four saved heights are
+  numbered marks on it, and a dragged target snaps onto them.
+- The Height panel beside the figure: your height and Nudge now (±1 / ±10 / ±100 cm); the target, typed
+  as a height (`50 m`, `1,7 m`, `1.2 km`); Load as target (the four saved heights) and Save current height
+  to; and **Go instant** or **Go timed**. Below, the Timed transition card keeps only the timing:
+  duration, curve, graph and status.
+- Hold-to-grow hotkeys: hold a key to grow or shrink smoothly, in cm per second (5 cm/s to start) or %
+  per second. Your own keys (numpad + / − by default, modifiers allowed), on from the first start (they
+  can be switched off), and only while VRChat is in front
+  unless you say otherwise. Read by polling the key state, never a keyboard hook. A held key stops a
+  running transition, stops at the height limit, and waits for VRChat's real height like everything else.
+- Self-update (VRCParameterRelay's updater): at every start the app asks GitHub for the newest release;
+  a newer one lights an orange chip in the header and opens a window — Install now downloads it,
+  checks its size and SHA-256, swaps the exe and restarts. Later is the default (Enter never installs),
+  "Don't remind me" quiets that version, Settings → Updates checks by hand. Run from source, it offers
+  the release page. Releases carry `HeightShift-Windows.exe` (build.bat writes it) and the menu package.
+- Settings end with a mini guide to the VRChat menu: each of its icons and what it does, in the menu's
+  order, with links to the VRCFury prefab (the newest release's) and the setup guide.
+- The status bar's names are links: HeightShift to its GitHub page, Blise518B to his GitHub profile.
+- VRChat menu: a VRCFury prefab (docs/VRCHAT_MENU.md) with Grow / Shrink while held, Play / Pause,
+  Stop, and Load / Save for the four saved heights. Unsynced parameters, no animator; the app says in
+  Settings whether the current avatar has it. Grow / Shrink use the hold speed shared with the hotkeys.
+
+### Changed
+- A timed transition and a held key (hotkey or VRChat menu) send your height 30 times a second instead
+  of 10, so growing looks smoother; Settings → Height → Updates per second offers 10 / 30 / 60.
+- A scale range that can't be (a top above the limit, a bottom above the top) is refused with a reason
+  instead of being quietly clamped.
+- A saved height no longer sets your height when clicked in the window: it becomes the target (Go
+  instant / Go timed then takes you there). The VRChat menu's Load still sets it at once.
+- The window opens wider (1100 px) so the Height panel fits beside the figure. In a narrower window the
+  figure shrinks first (to about 60 %); only when even that doesn't fit does the panel go under it, and
+  the window never gets narrower than its controls.
+
 ## [1.1] - 2026-11-10
 
 ### Added

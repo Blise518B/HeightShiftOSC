@@ -43,11 +43,20 @@ CONFIG_DIR_NAME = "HeightShift"
 CONFIG_FILE_NAME = "HeightShiftOSC_config.json"
 LEGACY_CONFIG_DIR_NAME = "HeightShiftOSC"
 AUTHOR = "Blise518B"
+# Where the status bar's two names lead (as in OscGoesPurrr): the app's to its
+# repository, his to his GitHub profile
+GITHUB_REPO = "Blise518B/HeightShiftOSC"
+GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
+AUTHOR_URL = "https://github.com/Blise518B"
+# The VRChat menu (Settings' mini guide): releases/latest/download/<fixed name>
+# is always the newest release's copy, so every release must carry the package
+MENU_PREFAB_URL = f"{GITHUB_URL}/releases/latest/download/HeightShift-VRCFury.unitypackage"
+MENU_GUIDE_URL = f"{GITHUB_URL}/blob/main/docs/VRCHAT_MENU.md"
 
 # --- Window Configuration ---
 # Compact first launch (his main display is 1707 x 912 logical px); after that
 # the window reopens where it was left (saveGeometry/restoreGeometry).
-DEFAULT_WINDOW_WIDTH = 940
+DEFAULT_WINDOW_WIDTH = 1100
 DEFAULT_WINDOW_HEIGHT = 790
 
 # --- Writing heights ---
@@ -70,11 +79,50 @@ PRESERVE_REPORT_GUARD_S = 0.3
 PRESERVE_MAX_RETRIES = 1
 PRESERVE_TOLERANCE_CM = 0.5
 
-# --- Slow transition ---
-TRANSITION_TICK_MS = 100          # at most 10 sends a second (same as the burst)
+# --- How often a moving height is sent ---
+# A timed transition and a held key (hotkey or VRChat menu) send the height
+# this many times a second: Settings -> Height -> Updates per second. VRChat
+# documents no limit on /avatar/eyeheight (docs.vrchat.com, OSC Avatar
+# Scaling); more is smoother in your own view, and other players see VRChat's
+# own network smoothing either way. Fewer helps if your view jitters.
+SEND_RATES = (10, 30, 60)
+DEFAULT_SEND_RATE = 30
+
+# --- Timed transition ---
 TRANSITION_MIN_STEP_CM = 0.05     # skip a send that would move less than 0.5 mm
 TRANSITION_MIN_DURATION_S = 1
 TRANSITION_MAX_DURATION_S = 99 * 3600
+
+# --- Hold-to-grow hotkeys ---
+# Keys are polled at the send rate above, and a held key sends at most that
+# often too. Speeds: % of the current height per second, or cm/s.
+DEFAULT_HOTKEYS_ENABLED = True     # numpad + / − work from the first start
+DEFAULT_HOTKEY_SPEED_UNIT = "cm"   # height_logic.SPEED_CM: the same cm every second
+DEFAULT_HOTKEY_SPEED = 5.0         # 5 cm per second: 1.7 m -> 2.2 m in 10 s
+HOTKEY_SPEED_MIN = 0.1
+HOTKEY_SPEED_MAX_PCT = 100.0       # doubling every second
+HOTKEY_SPEED_MAX_CM = 1000.0       # 10 m every second
+
+# --- In-VRChat menu (the VRCFury prefab, docs/unity/) ---
+# Avatar parameters the HeightShift menu sets. VRChat streams every avatar
+# parameter to this app already (it lists /avatar in OSCQuery). All of them
+# are unsynced and unsaved: they only talk to this app, so they cost the
+# avatar no synced memory, and they read 0 / False after every avatar load.
+# tests/test_vrcf_prefab.py checks the built package against this table.
+MENU_PREFIX = "HeightShift/"
+MENU_GROW = "HeightShift/Grow"        # Bool, a Button: grows while held
+MENU_SHRINK = "HeightShift/Shrink"    # Bool, a Button: shrinks while held
+MENU_PLAY = "HeightShift/Play"        # Bool, a Button: play / pause / resume the transition
+MENU_STOP = "HeightShift/Stop"        # Bool, a Button: stop the transition
+MENU_LOAD = "HeightShift/Load"        # Int, Buttons 1-4: set saved height N
+MENU_SAVE = "HeightShift/Save"        # Int, Buttons 1-4: save the current height as N
+MENU_PARAMS = {MENU_GROW: "bool", MENU_SHRINK: "bool", MENU_PLAY: "bool", MENU_STOP: "bool",
+               MENU_LOAD: "int", MENU_SAVE: "int"}
+# A press this soon after an avatar change is the new avatar's load, not a
+# press; a press this soon after the same button's release is the 518
+# router's second copy of a packet, not a second press.
+MENU_AVATAR_GUARD_S = 1.0
+MENU_DEBOUNCE_S = 0.15
 
 # --- OSC Manager Diagnostics Thresholds ---
 DIAG_LOG_INTERVAL_S = 30.0
