@@ -219,16 +219,23 @@ QLabel#CardLive[state="warn"] { color: %(warn)s; }
 QLabel#CardGhost { border: 2px dashed %(params_mid)s; border-radius: %(r_btn)spx; color: %(params)s; }
 QLabel#DragChip { background: %(card)s; border: 1px solid %(params)s; border-radius: 6px; padding: 4px 10px;
     color: %(txt)s; font-family: "Cascadia Mono", Consolas, monospace; }
-QPushButton#CardToggle { padding: 3px 9px; }
+QPushButton#CardToggle { padding: 5px 8px; min-height: 20px; max-height: 20px; }
 QPushButton#CardToggle[on="true"] { border-color: %(params_mid)s; color: %(params)s; }
 QPushButton#CardToggle[on="true"]:hover { background: %(params_tint)s; border-color: %(params)s; }
 QPushButton#CardToggle[on="false"] { background: %(amber_tint)s; border-color: %(amber_mid)s; color: %(amber)s; }
 QPushButton#CardToggle[on="false"]:hover { border-color: %(amber)s; }
 QPushButton#CardRemove { border-color: transparent; color: %(muted)s; padding: 3px 7px; }
 QPushButton#CardRemove:hover { border-color: %(line)s; color: %(txt)s; }
-QPushButton#ParamName { font-family: "Cascadia Mono", Consolas, monospace; text-align: left; padding: 4px 8px; }
-QPushButton#ParamName:hover { border-color: %(params)s; }
-QPushButton#ParamName[empty="true"] { color: %(params)s; border: 1px dashed %(params_mid)s; }
+QLineEdit#ParamName { font-family: "Cascadia Mono", Consolas, monospace; padding: 4px 8px;
+    border: 1px solid %(params_mid)s; border-top-right-radius: 0px; border-bottom-right-radius: 0px;
+    min-height: 20px; max-height: 20px; }
+QLineEdit#ParamName:focus { border-color: %(params)s; }
+QPushButton#PickParam { padding: 5px 10px; min-height: 20px; max-height: 20px; color: %(params)s;
+    border: 1px solid %(params_mid)s; border-left: none;
+    border-top-left-radius: 0px; border-bottom-left-radius: 0px; }
+QPushButton#PickParam:hover { background: %(params_tint)s; border-color: %(params)s; }
+QPushButton#PickerClose { padding: 4px 12px; font-weight: 650; border-color: %(params_mid)s; color: %(txt)s; }
+QPushButton#PickerClose:hover { background: %(params_tint)s; border-color: %(params)s; color: %(params)s; }
 QPushButton#Roll { padding: 4px 12px; border-color: %(params_mid)s; color: %(params)s; font-weight: 650; }
 QPushButton#Roll:hover { background: %(params_tint)s; border-color: %(params)s; }
 QPushButton#Seg[kind="grow"]:checked { background: %(plus_tint)s; border-color: %(plus)s; color: %(plus)s; }

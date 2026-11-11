@@ -2,14 +2,17 @@
 The Size parameters card's pieces (ui/window.py builds the card around them).
 
   * ParamCard — an avatar parameter that grows or shrinks you while it is
-    on: which one, which way, how fast, its own ⏸ / ▶, and a line saying
-    what it does right now.
+    on, on one line of its own: its own pause / play, the parameter's name
+    (typed, or Pick… from the list), which way, how fast; under it a line
+    saying what it does right now.
   * RandomCard — a random height between two, on 🎲 or when a parameter
     turns on; then select it, go instant or go timed (the saved heights'
     three actions, in their colours).
-  * CardBoard — the cards left to right, wrapping (OscGoesPurrr's Avatar
-    Remote board): drag one by its ⠿ to sort it; a parameter dropped on free
-    room makes a new card there. A see-through copy shows where it lands.
+  * CardBoard — the cards, one under the other, each the full width (Blise:
+    "each one of them would be one line so everything has a little bit more
+    space, especially the parameter name"): drag one by its ⠿ to sort it; a
+    parameter dropped between them makes a new card there. A see-through
+    copy shows where it lands.
   * ParamPicker — the avatar's parameters, beside the window (OGP's list):
     filter, click one to use it, or drag it onto a card.
 
@@ -20,8 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import QEvent, QMimeData, QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QDrag, QFontMetrics, QPainter, QPixmap
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QDrag, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -29,23 +32,23 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
     QLabel,
-    QLayout,
     QLineEdit,
     QPushButton,
     QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
-    QWidgetItem,
 )
 
 from constants import HOTKEY_SPEED_MIN, MIN_HEIGHT_CM
 from height_logic import (KIND_PARAM, KIND_RANDOM, PARAM_GROW, PARAM_SHRINK, SPEED_CM,
                           SPEED_PERCENT, speed_max)
 
-from .widgets import HeightSpinBox, Segmented, hbox, hint, label, no_buttons, restyle, vbox
+from .theme import colors, text_scale
+from .widgets import (HeightSpinBox, Segmented, hbox, hint, label, no_buttons, restyle,
+                      toggle_icon, vbox)
 
-CARD_W = 300                    # a card's width at 100 % text
 PICKER_W = 340                  # the parameter list's
 MIME_PARAM = "application/x-heightshift-param"   # "name\ntype": a row of the list
 MIME_CARD = "application/x-heightshift-card"     # a card's id: sorted
@@ -77,98 +80,45 @@ def value_text(value: Any) -> str:
     return str(value)
 
 
-class FlowLayout(QLayout):
-    """Left to right, wrapping (the Qt flow layout example, OGP's BoardFlow):
-    a hidden card (one being dragged) takes no room."""
+class NameField(QWidget):
+    """A parameter's name: typed (click in and change it), or Pick… from
+    the avatar's list beside the window. `committed` when a typed name is
+    done (Enter, or clicking elsewhere)."""
 
-    def __init__(self, parent: Optional[QWidget] = None, spacing: int = 10):
-        super().__init__(parent)
-        self._items: List[QWidgetItem] = []
-        self.setContentsMargins(0, 0, 0, 0)
-        self._gap = spacing
+    committed = Signal(str)
+    pick = Signal()
 
-    def addItem(self, item) -> None:  # noqa: N802
-        self._items.append(item)
-
-    def insert_widget(self, index: int, widget: QWidget) -> None:
-        self.addWidget(widget)
-        self._items.insert(max(0, min(index, len(self._items) - 1)), self._items.pop())
-        self.invalidate()
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index: int):  # noqa: N802
-        return self._items[index] if 0 <= index < len(self._items) else None
-
-    def takeAt(self, index: int):  # noqa: N802
-        return self._items.pop(index) if 0 <= index < len(self._items) else None
-
-    def expandingDirections(self):  # noqa: N802
-        return Qt.Orientation(0)
-
-    def hasHeightForWidth(self) -> bool:  # noqa: N802
-        return True
-
-    def heightForWidth(self, width: int) -> int:  # noqa: N802
-        return self._arrange(QRect(0, 0, width, 0), dry=True)
-
-    def setGeometry(self, rect: QRect) -> None:  # noqa: N802
-        super().setGeometry(rect)
-        self._arrange(rect, dry=False)
-
-    def sizeHint(self) -> QSize:  # noqa: N802
-        return self.minimumSize()
-
-    def minimumSize(self) -> QSize:  # noqa: N802
-        size = QSize()
-        for item in self._items:
-            if not item.isEmpty():
-                size = size.expandedTo(item.minimumSize())
-        return size
-
-    def _arrange(self, rect: QRect, dry: bool) -> int:
-        x, y = rect.x(), rect.y()
-        line_h = 0
-        for item in self._items:
-            if item.isEmpty():
-                continue
-            hint_ = item.sizeHint()
-            if x + hint_.width() > rect.right() + 1 and line_h > 0:
-                x = rect.x()
-                y += line_h + self._gap
-                line_h = 0
-            if not dry:
-                item.setGeometry(QRect(QPoint(x, y), hint_))
-            x += hint_.width() + self._gap
-            line_h = max(line_h, hint_.height())
-        return y + line_h - rect.y()
-
-
-class ElideButton(QPushButton):
-    """A button whose text is cut at the start when it doesn't fit: the end
-    of a parameter's name is what tells two apart (…Contact/Grow)."""
-
-    def __init__(self, text: str = "") -> None:
+    def __init__(self, placeholder: str, pick_tip: str) -> None:
         super().__init__()
-        self._full = text
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.set_full_text(text)
+        lay = hbox(spacing=0)
+        self.setLayout(lay)
+        self.edit = QLineEdit()
+        self.edit.setObjectName("ParamName")
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.setMinimumWidth(110)
+        self.edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.edit.editingFinished.connect(self._done)
+        lay.addWidget(self.edit, 1)
+        self.pick_btn = QPushButton("Pick…")
+        self.pick_btn.setObjectName("PickParam")
+        self.pick_btn.setCursor(Qt.PointingHandCursor)
+        self.pick_btn.setToolTip(pick_tip)
+        self.pick_btn.clicked.connect(self.pick.emit)
+        lay.addWidget(self.pick_btn)
+        self._shown = ""
 
-    def set_full_text(self, text: str) -> None:
-        self._full = text
-        self._elide()
+    def set_name(self, name: str) -> None:
+        self._shown = name
+        if not self.edit.hasFocus() or self.edit.text() == name:
+            self.edit.setText(name)
+            self.edit.setCursorPosition(len(name))     # the end tells two apart
+        self.edit.setToolTip(name or self.edit.placeholderText())
 
-    def full_text(self) -> str:
-        return self._full
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._elide()
-
-    def _elide(self) -> None:
-        room = max(20, self.width() - 22)
-        super().setText(QFontMetrics(self.font()).elidedText(self._full, Qt.ElideLeft, room))
+    def _done(self) -> None:
+        text = self.edit.text().strip()
+        if text != self._shown:
+            self._shown = text
+            self.committed.emit(text)
 
 
 # ----------------------------------------------------------------------
@@ -194,7 +144,7 @@ class SizeCard(QFrame):
         self.setProperty("kind", entry.get("kind", KIND_PARAM))
         self.setProperty("picking", "false")
         self.setAcceptDrops(True)
-        self.lay = vbox(margin=10, spacing=6)
+        self.lay = vbox(margin=8, spacing=4)
         self.setLayout(self.lay)
         self.head = hbox(spacing=6)
         self.lay.addLayout(self.head)
@@ -231,12 +181,20 @@ class SizeCard(QFrame):
         self.entry = dict(entry)
         on = bool(entry.get("on", True))
         self.on_btn.setChecked(on)
-        # ‖ / ▶ as text: ⏸ draws as a coloured emoji
-        self.on_btn.setText("‖" if on else "▶")
+        self.paint_toggle()
         self.on_btn.setToolTip("On — click to pause this card" if on
                                else "Paused — click to switch it back on")
         self.on_btn.setProperty("on", "true" if on else "false")
         restyle(self.on_btn)
+
+    def paint_toggle(self) -> None:
+        """Pause bars in cyan while on, a play triangle in amber while paused
+        (also again after a text-size or mode change)."""
+        on = self.on_btn.isChecked()
+        c = colors()
+        px = round(14 * max(1.0, text_scale()))
+        self.on_btn.setIcon(toggle_icon(on, c["params"] if on else c["amber"], px))
+        self.on_btn.setIconSize(QSize(px, px))
 
     def set_live(self, text: str, state: str) -> None:
         if self.live.text() != text:
@@ -329,15 +287,15 @@ class ParamCard(SizeCard):
 
     def __init__(self, entry: Dict[str, Any]) -> None:
         super().__init__(entry)
-        self.name_btn = ElideButton()
-        self.name_btn.setObjectName("ParamName")
-        self.name_btn.setCursor(Qt.PointingHandCursor)
-        self.name_btn.clicked.connect(lambda: self.pick.emit(self.pid))
-        self.head.addWidget(self.name_btn, 1)
+        self.name = NameField("Parameter name — type it, or Pick…",
+                              "Pick it from the avatar's parameters (a list beside the window)")
+        self.name.committed.connect(lambda text: self._emit({"param": text, "type": ""}))
+        self.name.pick.connect(lambda: self.pick.emit(self.pid))
+        self.head.addWidget(self.name, 1)
         self.type_lbl = label("", "CardType")
         self.head.addWidget(self.type_lbl)
 
-        row = hbox(spacing=6)
+        row = self.head                  # one line: everything after the name
         self.dir_seg = Segmented([(PARAM_GROW, "Grow"), (PARAM_SHRINK, "Shrink")])
         self.dir_seg.mark_kinds()
         self.dir_seg.set_tooltips({PARAM_GROW: "Grow while it is on",
@@ -347,11 +305,10 @@ class ParamCard(SizeCard):
         self.speed_spin = no_buttons(QDoubleSpinBox())
         self.speed_spin.setDecimals(1)
         self.speed_spin.setMinimum(HOTKEY_SPEED_MIN)
-        self.speed_spin.setMinimumWidth(62)
-        self.speed_spin.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.speed_spin.setFixedWidth(62)
         self.speed_spin.setToolTip("How fast at full strength: a Bool that is on, a Float at 1")
         self.speed_spin.valueChanged.connect(lambda v: self._emit({"speed": float(v)}))
-        row.addWidget(self.speed_spin, 1)
+        row.addWidget(self.speed_spin)
         self.unit_seg = Segmented([(SPEED_CM, "cm/s"), (SPEED_PERCENT, "%/s")])
         self.unit_seg.set_tooltips({
             SPEED_CM: "The same number of centimetres every second",
@@ -359,20 +316,13 @@ class ParamCard(SizeCard):
                            "30 cm and at 50 m"})
         self.unit_seg.changed.connect(self._on_unit)
         row.addWidget(self.unit_seg)
-        self.lay.addLayout(row)
         self.finish()
 
     def set_entry(self, entry: Dict[str, Any]) -> None:
         super().set_entry(entry)
         self._quiet = True
         try:
-            name = entry.get("param") or ""
-            self.name_btn.set_full_text(name or "Pick a parameter…")
-            self.name_btn.setProperty("empty", "false" if name else "true")
-            restyle(self.name_btn)
-            self.name_btn.setToolTip(
-                (f"{name} — click to pick another" if name
-                 else "Pick the avatar parameter from the list beside the window"))
+            self.name.set_name(entry.get("param") or "")
             self.type_lbl.setText((entry.get("type") or "").upper())
             self.dir_seg.set_value(entry.get("dir", PARAM_GROW))
             unit = entry.get("unit", SPEED_CM)
@@ -401,23 +351,32 @@ class RandomCard(SizeCard):
 
     def __init__(self, entry: Dict[str, Any], top_cm: float) -> None:
         super().__init__(entry)
-        title = label("🎲  Random height", "CardTitle")
-        self.head.addWidget(title, 1)
+        self.head.addWidget(label("🎲  Random", "CardTitle"))
+        self.trigger = NameField("Trigger parameter (optional) — type it, or Pick…",
+                                 "Pick the parameter that rolls it when it turns on")
+        self.trigger.committed.connect(lambda text: self._emit({"param": text, "type": ""}))
+        self.trigger.pick.connect(lambda: self.pick.emit(self.pid))
+        self.head.addWidget(self.trigger, 1)
+        self.roll_btn = QPushButton("🎲  Roll")
+        self.roll_btn.setObjectName("Roll")
+        self.roll_btn.setCursor(Qt.PointingHandCursor)
+        self.roll_btn.setToolTip("Pick a random height now")
+        self.roll_btn.clicked.connect(lambda: self.roll.emit(self.pid))
+        self.head.addWidget(self.roll_btn)
 
         rng = hbox(spacing=6)
+        rng.addSpacing(4)
         rng.addWidget(label("From", "FieldLabel"))
         self.lo_spin = no_buttons(HeightSpinBox())
         self.hi_spin = no_buttons(HeightSpinBox())
         for spin, key in ((self.lo_spin, "min"), (self.hi_spin, "max")):
             spin.setRange(MIN_HEIGHT_CM, top_cm)
-            spin.setMinimumWidth(56)
-            spin.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            spin.setFixedWidth(90)
             spin.valueChanged.connect(lambda v, k=key: self._emit({k: float(v)}))
-        rng.addWidget(self.lo_spin, 1)
+        rng.addWidget(self.lo_spin)
         rng.addWidget(label("to", "FieldLabel"))
-        rng.addWidget(self.hi_spin, 1)
-        self.lay.addLayout(rng)
-
+        rng.addWidget(self.hi_spin)
+        rng.addSpacing(8)
         self.go_seg = Segmented(list(self.ACTIONS))
         self.go_seg.mark_kinds()
         self.go_seg.set_tooltips({
@@ -425,26 +384,9 @@ class RandomCard(SizeCard):
             "instant": "Go there at once",
             "timed": "Go there over the Timed transition's time"})
         self.go_seg.changed.connect(lambda k: self._emit({"go": k}))
-        self.lay.addWidget(self.go_seg)
-
-        row = hbox(spacing=6)
-        self.roll_btn = QPushButton("🎲  Roll")
-        self.roll_btn.setObjectName("Roll")
-        self.roll_btn.setCursor(Qt.PointingHandCursor)
-        self.roll_btn.setToolTip("Pick a random height now")
-        self.roll_btn.clicked.connect(lambda: self.roll.emit(self.pid))
-        row.addWidget(self.roll_btn)
-        self.trigger_btn = ElideButton()
-        self.trigger_btn.setObjectName("ParamName")
-        self.trigger_btn.setCursor(Qt.PointingHandCursor)
-        self.trigger_btn.clicked.connect(lambda: self.pick.emit(self.pid))
-        row.addWidget(self.trigger_btn, 1)
-        self.clear_btn = QPushButton("✕")
-        self.clear_btn.setObjectName("CardRemove")
-        self.clear_btn.setToolTip("No trigger: only 🎲 rolls")
-        self.clear_btn.clicked.connect(lambda: self._emit({"param": "", "type": ""}))
-        row.addWidget(self.clear_btn)
-        self.lay.addLayout(row)
+        rng.addWidget(self.go_seg)
+        rng.addStretch(1)
+        self.lay.addLayout(rng)
         self.finish()
 
     def set_top(self, top_cm: float) -> None:
@@ -465,15 +407,8 @@ class RandomCard(SizeCard):
             self.lo_spin.setValue(float(entry.get("min", 50.0)))
             self.hi_spin.setValue(float(entry.get("max", 500.0)))
             self.go_seg.set_value(entry.get("go", "instant"))
-            name = entry.get("param") or ""
-            self.trigger_btn.set_full_text(name or "Trigger: pick a parameter…")
-            self.trigger_btn.setProperty("empty", "false" if name else "true")
-            restyle(self.trigger_btn)
-            self.trigger_btn.setToolTip(
-                (f"Rolls when {name} turns on — click to pick another" if name else
-                 "Optional: an avatar parameter that rolls when it turns on (a contact, "
-                 "a button)"))
-            self.clear_btn.setVisible(bool(name))
+            # empty it to have no trigger: only 🎲 rolls then
+            self.trigger.set_name(entry.get("param") or "")
         finally:
             self._quiet = False
 
@@ -483,8 +418,9 @@ class RandomCard(SizeCard):
 # ----------------------------------------------------------------------
 
 class CardBoard(QWidget):
-    """The cards, wrapping. Sorting a card and dropping a parameter on free
-    room both show a see-through copy where it will land."""
+    """The cards, one per line, each the full width. Sorting a card and
+    dropping a parameter between them both show a see-through copy where it
+    will land."""
 
     moved = Signal(str, int)               # card id, its new place
     param_dropped = Signal(str, str, int)  # name, type, place: a new card
@@ -492,16 +428,17 @@ class CardBoard(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setAcceptDrops(True)
-        self.flow = FlowLayout(self, spacing=10)
+        self.column = QVBoxLayout(self)
+        self.column.setContentsMargins(0, 0, 0, 0)
+        self.column.setSpacing(8)
         self.cards: Dict[str, SizeCard] = {}
         self._ghost: Optional[QLabel] = None
         self._ghost_at = -1
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
     def set_cards(self, cards: List[SizeCard]) -> None:
         self._remove_ghost()
-        while self.flow.count():
-            item = self.flow.takeAt(0)
+        while self.column.count():
+            item = self.column.takeAt(0)
             widget = item.widget() if item is not None else None
             if widget is not None:
                 if isinstance(widget, SizeCard):
@@ -510,23 +447,25 @@ class CardBoard(QWidget):
                 widget.deleteLater()
         self.cards = {}
         for card in cards:
-            self.flow.addWidget(card)
+            self.column.addWidget(card)
             self.cards[card.pid] = card
-        self.flow.invalidate()
         self.updateGeometry()
+
+    def paint_icons(self) -> None:
+        for card in self.cards.values():
+            card.paint_toggle()
 
     # --- where a drop lands ---------------------------------------------------
 
     def _index_at(self, pos: QPoint) -> int:
+        """The place among the visible cards (the ghost and a card being
+        carried don't count): above a card's middle, before it."""
         index = 0
-        for i in range(self.flow.count()):
-            widget = self.flow.itemAt(i).widget()
+        for i in range(self.column.count()):
+            widget = self.column.itemAt(i).widget()
             if widget is None or widget is self._ghost or not widget.isVisible():
                 continue
-            r = widget.geometry()
-            if pos.y() < r.top():
-                return index
-            if pos.y() <= r.bottom() and pos.x() < r.center().x():
+            if pos.y() < widget.geometry().center().y():
                 return index
             index += 1
         return index
@@ -544,30 +483,25 @@ class CardBoard(QWidget):
             name = bytes(md.data(MIME_PARAM)).decode().partition("\n")[0]
             ghost.setText(f"+  {name}")
             ghost.setAlignment(Qt.AlignCenter)
-            ghost.setFixedSize(self._card_width(), 64)
+            ghost.setFixedHeight(40)
         # the place among the visible cards -> the place in the layout
-        seen, at = 0, self.flow.count()
-        for i in range(self.flow.count()):
-            widget = self.flow.itemAt(i).widget()
+        seen, at = 0, self.column.count()
+        for i in range(self.column.count()):
+            widget = self.column.itemAt(i).widget()
             if widget is None or not widget.isVisible():
                 continue
             if seen == index:
                 at = i
                 break
             seen += 1
-        self.flow.insert_widget(at, ghost)
+        self.column.insertWidget(at, ghost)
         ghost.show()
         self._ghost, self._ghost_at = ghost, index
-
-    def _card_width(self) -> int:
-        for card in self.cards.values():
-            return card.width()
-        return CARD_W
 
     def _remove_ghost(self) -> None:
         ghost, self._ghost, self._ghost_at = self._ghost, None, -1
         if ghost is not None:
-            self.flow.removeWidget(ghost)
+            self.column.removeWidget(ghost)
             ghost.deleteLater()
 
     @staticmethod
@@ -648,9 +582,10 @@ class ParamPicker(QFrame):
         again.setToolTip("Read the list from VRChat again")
         again.clicked.connect(self.refresh.emit)
         head.addWidget(again)
-        close = QPushButton("✕")
-        close.setObjectName("Refresh")
-        close.setToolTip("Close the list")
+        close = QPushButton("✕  Close")
+        close.setObjectName("PickerClose")
+        close.setCursor(Qt.PointingHandCursor)
+        close.setToolTip("Put the list away (it comes back with Settings, or Pick… on a card)")
         close.clicked.connect(self.closed.emit)
         head.addWidget(close)
         lay.addLayout(head)

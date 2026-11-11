@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, Optional, Tuple
 
-from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -127,6 +127,32 @@ def group(title: str, hue: str) -> Tuple[QFrame, QVBoxLayout]:
     body.setContentsMargins(6, 2, 6, 6)
     outer.addLayout(body)
     return frame, body
+
+
+def toggle_icon(on: bool, color: str, px: int) -> QIcon:
+    """Pause (two bars) while something runs, play (a triangle) while it is
+    paused: drawn, not a font's ⏸ (Windows draws that as a blue emoji)."""
+    px = max(10, int(px))
+    big = px * 2
+    pix = QPixmap(big, big)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    u = big / 16.0
+    if on:
+        p.drawRoundedRect(QRectF(3.5 * u, 2.5 * u, 3.4 * u, 11 * u), u, u)
+        p.drawRoundedRect(QRectF(9.1 * u, 2.5 * u, 3.4 * u, 11 * u), u, u)
+    else:
+        tri = QPainterPath(QPointF(4.5 * u, 2.5 * u))
+        tri.lineTo(QPointF(13.5 * u, 8 * u))
+        tri.lineTo(QPointF(4.5 * u, 13.5 * u))
+        tri.closeSubpath()
+        p.drawPath(tri)
+    p.end()
+    pix.setDevicePixelRatio(2.0)
+    return QIcon(pix)
 
 
 def no_buttons(spin: QAbstractSpinBox) -> QAbstractSpinBox:

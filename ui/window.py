@@ -72,8 +72,7 @@ from height_logic import (
 from . import theme_tokens as T
 from .figure import FIT_MIN, SizeComparison, ratio_text
 from .graph import GRAPH_HEIGHT, TransitionGraph
-from .size_cards import (CARD_W, KIND_RANDOM, PICKER_W, CardBoard, ParamCard, ParamPicker,
-                         RandomCard)
+from .size_cards import KIND_RANDOM, PICKER_W, CardBoard, ParamCard, ParamPicker, RandomCard
 from .theme import TEXT_SCALES, colors, resource_path, text_scale
 from .update_dialog import UpdateDialog
 from .whats_new import WhatsNewDialog
@@ -88,6 +87,7 @@ from .widgets import (
     hint,
     label,
     no_buttons,
+    toggle_icon,
     HeightSpinBox,
     restyle,
     save_icon,
@@ -217,6 +217,11 @@ class HeightShiftWindow(QMainWindow):
         self.profile_load_btns: Dict[int, QPushButton] = {}
         self.capturing_key = False      # a hotkey button waits for a key press
         self._picking: str = ""         # the card a click in the parameter list goes to
+        # the parameter list shows while Settings are open or while a card
+        # asks for a parameter (Blise: not "on" otherwise); its Close puts it
+        # away until Settings open again
+        self._pick_request = False
+        self._picker_dismissed = False
         self._top_cm = float(MAX_HEIGHT_CM)
 
         # pace(): what a stream changes, drawn at the window's own pace
@@ -281,7 +286,7 @@ class HeightShiftWindow(QMainWindow):
         # the avatar's parameters, opened from a card: between the work and Settings
         self.picker = ParamPicker()
         self.picker.picked.connect(self._on_param_picked)
-        self.picker.closed.connect(lambda: self.close_picker())
+        self.picker.closed.connect(self._on_picker_close)
         self.picker.refresh.connect(self.param_picker_refresh.emit)
         self.picker.hide()
         middle.addWidget(self.picker)
@@ -304,7 +309,8 @@ class HeightShiftWindow(QMainWindow):
         bar = self.work_scroll.verticalScrollBar().sizeHint().width()
         smallest = self._figure_chrome() + self.figure.stage_size(FIT_MIN)[0]
         need = max(smallest, self.height_panel.minimumSizeHint().width(),
-                   self.transition_card.minimumSizeHint().width()) + 24 + bar
+                   self.transition_card.minimumSizeHint().width(),
+                   self.size_card.minimumSizeHint().width()) + 24 + bar
         screen = self.screen() or QGuiApplication.primaryScreen()
         if screen is not None:
             room = screen.availableGeometry().width() - 16
@@ -1154,7 +1160,11 @@ class HeightShiftWindow(QMainWindow):
         # Opening/folding the panel is the person's own action, so the window
         # may grow or shrink by the panel's width for it (ui-style.md).
         was_visible = not self.settings_panel.isHidden()
+        # the width before: showing the panel can already stretch the window
+        # to its new minimum, and the panel's width must not count twice
+        before = self.width()
         self.settings_panel.setVisible(show)
+        self._relayout()
         # the saved heights' ▾ (what a click does) are a setting: shown with them
         for num, kind in self.slot_kind_btns.items():
             kind.setVisible(show)
@@ -1164,8 +1174,11 @@ class HeightShiftWindow(QMainWindow):
         self._fit_work_column()
         if resize and self.isVisible() and was_visible != show:
             delta = self.settings_panel.width() if show else -self.settings_panel.width()
-            self.resize(max(self.minimumSizeHint().width(), self.width() + delta), self.height())
+            self.resize(max(self.minimumSizeHint().width(), before + delta), self.height())
             self.ensure_on_screen()
+        if show != was_visible:
+            self._picker_dismissed = False        # opening Settings brings the list back
+        self._sync_picker(resize)
 
     def _step_text_scale(self, direction: int) -> None:
         current = text_scale()
@@ -1421,22 +1434,12 @@ class HeightShiftWindow(QMainWindow):
             card_.set_picking(entry["id"] == self._picking)
             cards.append(card_)
         self.size_board.set_cards(cards)
-        self._size_card_widths()
         self.size_empty.setVisible(not entries)
         self.size_hint.setVisible(bool(entries))
         self._set_size_all(on, note)
         if self._picking and self._picking not in self.size_board.cards:
             self._picking = ""
         self._show_picking()
-
-    def _size_card_widths(self) -> None:
-        """All cards as wide as the widest needs (at least CARD_W, grown
-        with the text), so they line up in columns."""
-        cards = list(self.size_board.cards.values())
-        width = max([round(CARD_W * max(1.0, text_scale()))]
-                    + [c.minimumSizeHint().width() for c in cards])
-        for c in cards:
-            c.setFixedWidth(width)
 
     def set_size_param_live(self, pid: str, text: str, state: str = "") -> None:
         card_ = self.size_board.cards.get(pid)
@@ -1445,7 +1448,11 @@ class HeightShiftWindow(QMainWindow):
 
     def _set_size_all(self, on: bool, note: str) -> None:
         self.size_all_btn.setChecked(on)
-        self.size_all_btn.setText("‖  All on" if on else "▶  All paused")
+        self.size_all_btn.setText("All on" if on else "All paused")
+        c = colors()
+        px = round(14 * max(1.0, text_scale()))
+        self.size_all_btn.setIcon(toggle_icon(on, c["params"] if on else c["amber"], px))
+        self.size_all_btn.setIconSize(QSize(px, px))
         self.size_all_btn.setProperty("on", "true" if on else "false")
         self.size_all_btn.setToolTip("All cards work — click to pause them all" if on
                                      else "All cards are paused (🎲 still rolls) — click to "
@@ -1461,43 +1468,66 @@ class HeightShiftWindow(QMainWindow):
         self.size_params_toggled.emit(bool(checked))
 
     def _on_card_removed(self, pid: str) -> None:
-        if pid == self._picking:
-            self._picking = ""
+        picking = pid == self._picking
         self.size_param_removed.emit(pid)
+        if picking:
+            self.close_picker()              # the card it was for is gone
 
     @property
     def picker_open(self) -> bool:
         return not self.picker.isHidden()
 
-    def open_picker(self, pid: str = "") -> None:
-        """The avatar's parameters beside the window; a click in the list
-        goes to card `pid` ('' : a new card)."""
-        self._picking = pid
-        self._show_picking()
-        if self.picker_open:
+    def _relayout(self) -> None:
+        """A panel came or went: the minimum width follows now, not at the
+        next event loop pass (a resize right after must see it)."""
+        self.centralWidget().layout().activate()
+        self.layout().activate()
+
+    def _picker_wanted(self) -> bool:
+        """With Settings open (unless Closed since), or while a card asks
+        for a parameter — never otherwise."""
+        settings = not self.settings_panel.isHidden()
+        return self._pick_request or (settings and not self._picker_dismissed)
+
+    def _sync_picker(self, resize: bool = True) -> None:
+        show = self._picker_wanted()
+        if show == self.picker_open:
             return
-        was = self.picker.isHidden()
-        self.picker.setFixedWidth(round(PICKER_W * max(1.0, text_scale())))
-        self.picker.show()
+        if show:
+            self.picker.setFixedWidth(round(PICKER_W * max(1.0, text_scale())))
+        before = self.width()                    # as for Settings: never counted twice
+        self.picker.setVisible(show)
+        self._relayout()
         self._fit_work_column()
-        if was and self.isVisible():
-            # opening it is the person's own action: the window grows by it
-            self.resize(self.width() + self.picker.width(), self.height())
+        if resize and self.isVisible():
+            # showing it is the person's own action: the window grows by it
+            delta = self.picker.width() if show else -self.picker.width()
+            self.resize(max(self.minimumSizeHint().width(), before + delta), self.height())
             self.ensure_on_screen()
+        self.param_picker_shown.emit(show)
+
+    def open_picker(self, pid: str = "") -> None:
+        """The avatar's parameters beside the window, for card `pid` ('' :
+        a click in the list makes a new card). The filter keeps what was
+        typed in it while the app runs."""
+        self._picking = pid
+        self._pick_request = True
+        self._show_picking()
+        self._sync_picker()
         self.picker.filter.setFocus()
-        self.param_picker_shown.emit(True)
+        self.picker.filter.selectAll()
 
     def close_picker(self) -> None:
+        """Done picking. The list stays while Settings are open."""
         self._picking = ""
+        self._pick_request = False
         self._show_picking()
-        if not self.picker_open:
-            return
-        self.picker.hide()
-        self._fit_work_column()
-        if self.isVisible():
-            self.resize(max(self.minimumSizeHint().width(), self.width() - self.picker.width()),
-                        self.height())
-        self.param_picker_shown.emit(False)
+        self._sync_picker()
+
+    def _on_picker_close(self) -> None:
+        """The list's own Close: away until Settings open again."""
+        self._picker_dismissed = True
+        self.close_picker()
 
     def _show_picking(self) -> None:
         for pid, card_ in self.size_board.cards.items():
@@ -1832,7 +1862,8 @@ class HeightShiftWindow(QMainWindow):
         self.text_bigger.setEnabled(scale < TEXT_SCALES[-1] - 1e-3)
         self.settings_panel.setFixedWidth(round(self.SETTINGS_WIDTH * max(1.0, scale)))
         self.picker.setFixedWidth(round(PICKER_W * max(1.0, scale)))
-        self._size_card_widths()
+        self.size_board.paint_icons()
+        self._set_size_all(self.size_all_btn.isChecked(), self.size_note.text())
         self.graph.updateGeometry()
         self.graph.setMinimumHeight(round(GRAPH_HEIGHT * scale))
         self.graph.update()

@@ -331,6 +331,83 @@ class SizeParamsTest(unittest.TestCase):
         self.assertEqual([p["param"] for p in self.c.size_params], ["a"])
         self.window.close_picker()
 
+    # --- when the list shows (Blise: only with Settings, or while picking) ------
+    def test_the_list_is_closed_at_first(self):
+        self.make()
+        self.assertFalse(self.window.picker_open)
+
+    def test_the_list_shows_with_settings_and_goes_with_them(self):
+        self.make()
+        self.window.settings_btn.click()
+        self.assertTrue(self.window.picker_open)
+        self.window.settings_btn.click()
+        self.assertFalse(self.window.picker_open)
+
+    def test_a_pick_while_settings_are_open_keeps_the_list(self):
+        self.make(size_params=[dict(GROW_CARD)], settings_open=True)
+        pid = self.c.size_params[0]["id"]
+        self.assertTrue(self.window.picker_open)
+        self.window.open_picker(pid)
+        self.window._on_param_picked("Other", "Bool")
+        self.assertEqual(self.c.size_params[0]["param"], "Other")
+        self.assertTrue(self.window.picker_open)           # Settings are still open
+
+    def test_close_puts_it_away_until_settings_open_again(self):
+        self.make(settings_open=True)
+        self.window._on_picker_close()
+        self.assertFalse(self.window.picker_open)
+        self.window.settings_btn.click()                   # Settings shut …
+        self.window.settings_btn.click()                   # … and opened again
+        self.assertTrue(self.window.picker_open)
+
+    def test_the_filter_is_kept_while_the_app_runs(self):
+        self.make(size_params=[dict(GROW_CARD)])
+        pid = self.c.size_params[0]["id"]
+        self.window.open_picker(pid)
+        self.window.picker.filter.setText("contact")
+        self.window.close_picker()
+        self.window.open_picker(pid)
+        self.assertEqual(self.window.picker.filter.text(), "contact")
+        self.assertNotIn("contact", str(self.c.config.config))   # not saved
+
+    def test_opening_and_closing_the_list_gives_the_width_back(self):
+        from PySide6.QtCore import Qt
+        self.make(size_params=[dict(GROW_CARD)])
+        self.window.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.window.resize(740, 800)
+        self.window.show()
+        QTest.qWait(20)
+        width = self.window.width()
+        self.window.open_picker(self.c.size_params[0]["id"])
+        QTest.qWait(20)
+        opened = self.window.width()
+        list_w = self.window.picker.width()
+        # wider by the list — never by it twice (Qt may already have stretched
+        # the window to its new minimum when the list appeared)
+        self.assertGreaterEqual(opened, width + list_w - 1)
+        self.assertLess(opened, width + 2 * list_w)
+        self.window.close_picker()
+        QTest.qWait(20)
+        self.assertLess(self.window.width(), opened)
+
+    # --- a card's name, typed --------------------------------------------------
+    def test_a_typed_name_is_the_cards_parameter(self):
+        self.make(size_params=[dict(GROW_CARD)])
+        pid = self.c.size_params[0]["id"]
+        field = self.window.size_board.cards[pid].name
+        field.edit.setText("Contacts/Headpat_2")
+        field.edit.editingFinished.emit()
+        self.assertEqual(self.c.size_params[0]["param"], "Contacts/Headpat_2")
+        self.assertIn("Contacts/Headpat_2", self.osc.watched)
+        card = self.window.size_board.cards[pid]            # rebuilt with it
+        self.assertEqual(card.name.edit.text(), "Contacts/Headpat_2")
+
+    def test_the_toggle_is_a_drawn_icon(self):
+        self.make(size_params=[dict(GROW_CARD)])
+        card = next(iter(self.window.size_board.cards.values()))
+        self.assertEqual(card.on_btn.text(), "")
+        self.assertFalse(card.on_btn.icon().isNull())
+
     # --- the random card -----------------------------------------------------
     def rand(self, go="instant", lo=100.0, hi=400.0, param="Boop"):
         return {"kind": "random", "param": param, "type": "Bool", "min": lo, "max": hi,
