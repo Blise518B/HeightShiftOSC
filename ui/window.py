@@ -215,6 +215,8 @@ class HeightShiftWindow(QMainWindow):
         self.profile_values: Dict[int, QLabel] = {}
         self.profile_save_btns: Dict[int, QPushButton] = {}
         self.profile_load_btns: Dict[int, QPushButton] = {}
+        self.slot_cells: Dict[int, QWidget] = {}        # a saved height and its ▾
+        self._slots_joined = False                      # the ▾ shown (Settings open)
         self.capturing_key = False      # a hotkey button waits for a key press
         self._picking: str = ""         # the card a click in the parameter list goes to
         # the parameter list shows only while something asks for a parameter
@@ -480,11 +482,18 @@ class HeightShiftWindow(QMainWindow):
             widest(self.hero_sub, "5,000 cm · read from VRChat"),
             widest(self.target_note, "on the way · 12:00 left", "in 10 min, even growth"),
         ))
-        # a saved height never clipped ("6 · 999.9 cm", "6 · 99.999 m")
+        # A saved height never clipped ("9 · 999.9 cm", "9 · 99.999 m"), and
+        # its cell as wide with the ▾ as without (Blise: "the load slots
+        # don't need to get wider when I press the settings"): the ▾ takes
+        # its room from the slot, whose text tightens to "9·99.999 m" and
+        # whose padding narrows while it is shown.
         slot = self.profile_load_btns[1]
-        slot_w = widest(slot, "6 · 999.9 cm", "6 · 99.999 m") + 20
-        for btn in self.profile_load_btns.values():
-            btn.setMinimumWidth(slot_w)
+        kind_w = max(24, self.slot_kind_btns[1].minimumSizeHint().width())
+        cell_w = max(widest(slot, "9 · 999.9 cm", "9 · 99.999 m") + 20,
+                     widest(slot, "9·999.9 cm", "9·99.999 m") + 10 + kind_w)
+        for num, cell in self.slot_cells.items():
+            cell.setMinimumWidth(cell_w)
+            self.profile_load_btns[num].setMinimumWidth(0)
 
     @staticmethod
     def _key_row(key_name: str, text: str, tip: str, extra: Optional[QWidget] = None,
@@ -608,6 +617,7 @@ class HeightShiftWindow(QMainWindow):
             kind.hide()
             self.slot_kind_btns[i] = kind
             cell = QWidget()
+            self.slot_cells[i] = cell
             cell_lay = hbox(spacing=0)
             cell.setLayout(cell_lay)
             cell_lay.addWidget(pick, 1)
@@ -1166,11 +1176,13 @@ class HeightShiftWindow(QMainWindow):
         self.settings_panel.setVisible(show)
         self._relayout()
         # the saved heights' ▾ (what a click does) are a setting: shown with them
+        self._slots_joined = show
         for num, kind in self.slot_kind_btns.items():
             kind.setVisible(show)
             slot = self.profile_load_btns[num]
             slot.setProperty("joined", "true" if show else "false")
             restyle(slot)
+            self._slot_text(num)
         self._fit_work_column()
         if resize and self.isVisible() and was_visible != show:
             delta = self.settings_panel.width() if show else -self.settings_panel.width()
@@ -1335,12 +1347,20 @@ class HeightShiftWindow(QMainWindow):
         lab = self.profile_values.get(num)
         if lab is None:
             return
-        lab.setText(f"{num} · {format_height(cm)}" if cm is not None else f"{num} · empty")
+        self._saved[num] = cm
+        self._slot_text(num)
         lab.setProperty("empty", "false" if cm is not None else "true")
         restyle(lab)
-        self._saved[num] = cm
         self.figure.set_saved(num, cm)
         self._update_comparison()
+
+    def _slot_text(self, num: int) -> None:
+        """"3 · 1.7 m"; while its ▾ is shown "3·1.7 m", so the ▾ fits in the
+        same width."""
+        cm = self._saved.get(num)
+        dot = "·" if self._slots_joined else " · "
+        self.profile_values[num].setText(f"{num}{dot}{format_height(cm)}" if cm is not None
+                                         else f"{num}{dot}empty")
 
     def _on_pick_profile(self, num: int) -> None:
         """A saved height becomes the target (nothing is sent: Go instant or

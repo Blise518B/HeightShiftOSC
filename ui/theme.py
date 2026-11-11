@@ -112,6 +112,8 @@ QPushButton#ModeCurrent[kind="timed"] { background: %(timed)s; border-color: %(t
 QPushButton#ModeCurrent[kind="instant"]:hover, QPushButton#ModeCurrent[kind="timed"]:hover {
     border-color: %(txt)s; color: %(ink)s; }
 QPushButton#ModeOption { padding: 4px 12px; }
+/* the other two choices, floating on the picture under the button */
+QFrame#ModeOptions { background: %(card)s; border: 1px solid %(line)s; border-radius: 8px; }
 QPushButton#ModeOption[kind="select"] { border-color: %(accent)s; color: %(accent)s; }
 QPushButton#ModeOption[kind="instant"] { border-color: %(instant)s; color: %(instant)s; }
 QPushButton#ModeOption[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
@@ -158,7 +160,8 @@ QPushButton#Slot { font-family: "Cascadia Mono", Consolas, monospace; padding: 5
 QPushButton#SlotSave { padding: 5px 2px; min-height: 20px; max-height: 20px; }
 QPushButton#OwnHeight { padding: 6px 12px; }
 /* a saved height's ▾ (while Settings are open): joined to its right edge */
-QPushButton#Slot[joined="true"] { border-top-right-radius: 0px; border-bottom-right-radius: 0px; }
+QPushButton#Slot[joined="true"] { border-top-right-radius: 0px; border-bottom-right-radius: 0px;
+    padding-left: 5px; padding-right: 3px; }
 QPushButton#SlotKind { padding: 5px 0px; min-height: 20px; max-height: 20px; min-width: 24px; max-width: 24px;
     border-left: none; border-top-left-radius: 0px; border-bottom-left-radius: 0px; color: %(muted)s; }
 QPushButton#SlotKind::menu-indicator { image: none; width: 0px; }

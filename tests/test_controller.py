@@ -729,6 +729,35 @@ class ControllerTest(unittest.TestCase):
         self.window.settings_btn.setChecked(False)
         self.assertTrue(all(k.isHidden() for k in kinds.values()))
 
+    def test_settings_dont_move_the_height_panel(self):
+        # Blise: "the load slots don't need to get wider when I press the settings"
+        # (the panel's own minimum: the window around it depends on the screen)
+        self.make(profiles={"profile1": 140.0, "profile2": 9999.9})
+        self.window.show()
+        QTest.qWait(30)
+        panel = self.window.height_panel.minimumSizeHint().width()
+        self.window.settings_btn.setChecked(True)
+        QTest.qWait(30)
+        self.assertEqual(self.window.height_panel.minimumSizeHint().width(), panel)
+        self.assertEqual(self.window.profile_load_btns[2].text(), "2·99.999 m")   # tightened
+        self.window.settings_btn.setChecked(False)
+        self.assertEqual(self.window.profile_load_btns[2].text(), "2 · 99.999 m")
+
+    def test_the_scale_modes_choices_float_and_move_nothing(self):
+        self.make()
+        self.window.resize(1100, 900)
+        self.window.show()
+        QTest.qWait(30)
+        figure = self.window.figure.geometry()
+        switch = self.window.mode_switch
+        switch.current.click()
+        QTest.qWait(10)
+        self.assertTrue(switch.expanded)
+        self.assertEqual(self.window.figure.geometry(), figure)
+        self.assertIs(switch.options.parentWidget(), self.window.comparison_card)
+        self.assertGreater(switch.options.y(), switch.current.mapTo(
+            self.window.comparison_card, switch.current.rect().bottomLeft()).y())
+
     def test_an_empty_slots_dropdown_is_as_dim_as_the_slot(self):
         self.make(profiles={"profile1": 140.0})
         for num, kind in self.window.slot_kind_btns.items():

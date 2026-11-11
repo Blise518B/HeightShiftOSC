@@ -246,9 +246,11 @@ class Segmented(QWidget):
 
 class ModeSwitch(QWidget):
     """What a click on the height scale does, on top of the picture: the
-    choice in use as one button; pressed, the other two unfold under it,
-    inside the card (no popup), and picking one folds them away again.
-    Each in its colour: select green, go instant pink, go timed yellow."""
+    choice in use as one button; pressed, the other two appear under it,
+    floating on the picture inside the card (no popup window, and nothing
+    under it moves — Blise: "it should just appear because there's empty
+    space"); picking one puts them away again. Each in its colour: select
+    green, go instant pink, go timed yellow."""
 
     changed = Signal(str)
 
@@ -277,10 +279,13 @@ class ModeSwitch(QWidget):
         self.current.clicked.connect(self._toggle)
         top.addWidget(self.current)
         lay.addLayout(top)
-        self.options = QWidget()
+        # a child of the card when shown (not of this row, which is only as
+        # tall as the button), placed under the button, above the picture
+        self.options = QFrame()
+        self.options.setObjectName("ModeOptions")
         opts = hbox(spacing=6)
+        opts.setContentsMargins(6, 6, 6, 6)
         self.options.setLayout(opts)
-        opts.addStretch(1)
         self._option_btns: Dict[str, QPushButton] = {}
         for key, text in self.TEXTS.items():
             btn = QPushButton(text)
@@ -292,7 +297,6 @@ class ModeSwitch(QWidget):
             self._option_btns[key] = btn
             opts.addWidget(btn)
         self.options.hide()
-        lay.addWidget(self.options)
         # the picture decides the card's width, never this row: in a narrow
         # window the caption folds away and the options share what is left
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
@@ -302,6 +306,28 @@ class ModeSwitch(QWidget):
         super().resizeEvent(event)
         need = self.caption.sizeHint().width() + 8 + self.current.sizeHint().width()
         self.caption.setVisible(self.width() >= need)
+        if self.expanded:
+            self._place_options()
+
+    def moveEvent(self, event):  # noqa: N802
+        super().moveEvent(event)
+        if self.expanded:
+            self._place_options()
+
+    def _place_options(self) -> None:
+        """Under the button, right-aligned with it, on top of whatever is
+        there (the picture's empty sky, as a rule)."""
+        host = self.parentWidget()
+        if host is None:
+            return
+        if self.options.parentWidget() is not host:
+            self.options.setParent(host)
+        self.options.adjustSize()
+        size = self.options.sizeHint()
+        corner = self.current.mapTo(host, self.current.rect().bottomRight())
+        x = max(0, min(corner.x() - size.width() + 1, host.width() - size.width()))
+        self.options.setGeometry(x, corner.y() + 6, size.width(), size.height())
+        self.options.raise_()
 
     @property
     def mode(self) -> str:
@@ -323,13 +349,21 @@ class ModeSwitch(QWidget):
             btn.setVisible(key != mode)
 
     def _toggle(self) -> None:
-        self.options.setVisible(self.options.isHidden())
+        if self.options.isHidden():
+            self._place_options()
+            self.options.show()
+        else:
+            self.options.hide()
         self.current.setText(f"{self.TEXTS[self._mode]}  {'▴' if self.expanded else '▾'}")
 
     def _pick(self, mode: str) -> None:
         self.options.hide()
         self.set_mode(mode)
         self.changed.emit(mode)
+
+    def hideEvent(self, event):  # noqa: N802
+        super().hideEvent(event)
+        self.options.hide()            # never left floating on its own
 
 
 _MODIFIER_QT_KEYS = (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta, Qt.Key_AltGr,
