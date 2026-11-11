@@ -168,6 +168,10 @@ QPushButton#Choice::menu-indicator { image: none; width: 0px; }
 QPushButton#SlotKind[kind="instant"] { border-color: %(instant)s; color: %(instant)s; }
 QPushButton#SlotKind[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
 QPushButton#SlotKind:hover { background: %(hover)s; color: %(txt)s; }
+/* an empty (or locked) slot's ▾ is as dim as the slot it is joined to */
+QPushButton#SlotKind[usable="false"] { border-color: %(green_mid)s; color: %(dim)s; }
+QPushButton#SlotKind[kind="instant"][usable="false"] { border-color: %(instant_mid)s; }
+QPushButton#SlotKind[kind="timed"][usable="false"] { border-color: %(timed_mid)s; }
 /* a slot that can't be loaded now (empty, or the target is locked): it looks
    inactive but stays enabled, so a right-click still reaches it */
 QPushButton#Slot[usable="false"] { background: transparent; border-color: %(green_mid)s; color: %(dim)s; }

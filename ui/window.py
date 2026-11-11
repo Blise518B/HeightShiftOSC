@@ -1367,6 +1367,11 @@ class HeightShiftWindow(QMainWindow):
             btn.setProperty("usable", "true" if usable else "false")
             btn.setCursor(Qt.PointingHandCursor if usable else Qt.ArrowCursor)
             restyle(btn)
+            # its ▾ (while Settings are open) dims with it: one frame, one look
+            kind = self.slot_kind_btns.get(num)
+            if kind is not None:
+                kind.setProperty("usable", "true" if usable else "false")
+                restyle(kind)
             tip = why if not ok else (locked or why)
             btn.setToolTip((tip + " — " if tip else "") + "right-click: what a click on it does")
             marks[num] = (usable, why if not ok else (locked or why))

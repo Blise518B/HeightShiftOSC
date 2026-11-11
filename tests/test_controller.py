@@ -729,6 +729,14 @@ class ControllerTest(unittest.TestCase):
         self.window.settings_btn.setChecked(False)
         self.assertTrue(all(k.isHidden() for k in kinds.values()))
 
+    def test_an_empty_slots_dropdown_is_as_dim_as_the_slot(self):
+        self.make(profiles={"profile1": 140.0})
+        for num, kind in self.window.slot_kind_btns.items():
+            slot = self.window.profile_load_btns[num]
+            self.assertEqual(kind.property("usable"), slot.property("usable"), num)
+        self.assertEqual(self.window.slot_kind_btns[1].property("usable"), "true")
+        self.assertEqual(self.window.slot_kind_btns[9].property("usable"), "false")
+
     def test_a_slots_action_is_set_saved_and_shown(self):
         self.make(profiles={"profile1": 140.0})
         menu = self.window.slot_kind_btns[1].menu()                  # its ▾ dropdown

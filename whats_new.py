@@ -43,7 +43,7 @@ class Release(NamedTuple):
 
 
 RELEASES: Tuple[Release, ...] = (
-    Release("2.0.34", (
+    Release("2.0.35", (
         Item("Size parameters",
              "Let your avatar change your size: a contact, a toggle or a radial grows or "
              "shrinks you while it's on, each card at its own speed. Type a parameter's "
