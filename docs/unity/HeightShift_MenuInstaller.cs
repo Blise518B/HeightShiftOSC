@@ -4,10 +4,11 @@
 // select your avatar in the Hierarchy, then run
 //   Tools → HeightShift → Install VRChat Menu
 //
-// It adds the six HeightShift/* parameters (Grow, Shrink, Play and Stop
-// Bool, Load and Save Int — all unsynced and unsaved, i.e. ZERO sync bits)
-// to the avatar's Expression Parameters, creates a "HeightShift" submenu
-// asset (Grow, Shrink, Play / Pause and Stop buttons, and a Saved heights
+// It adds the nine HeightShift/* parameters (Grow, Shrink, Play, Stop, Reset,
+// Roll and Pause Bool, Load and Save Int — all unsynced and unsaved, i.e.
+// ZERO sync bits) to the avatar's Expression Parameters, creates a
+// "HeightShift" submenu asset (Grow, Shrink, Play / Pause, Stop, Own height
+// and Random height buttons, a Pause cards toggle, and a Saved heights
 // submenu with Load 1-4 and a Save current submenu with Save 1-4) and links
 // it into the avatar's root expressions menu. (No icons here; the VRCFury
 // prefab carries them.) Everything is done through the VRC SDK's own API —
@@ -48,6 +49,9 @@ namespace HeightShift
         private const string StopParam = "HeightShift/Stop";
         private const string LoadParam = "HeightShift/Load";
         private const string SaveParam = "HeightShift/Save";
+        private const string ResetParam = "HeightShift/Reset";
+        private const string RollParam = "HeightShift/Roll";
+        private const string PauseParam = "HeightShift/Pause";
         internal const string SubMenuControlName = "HeightShift";
 
         // The app's four saved heights: Load N / Save N send N.
@@ -65,6 +69,9 @@ namespace HeightShift
             (StopParam, VRCExpressionParameters.ValueType.Bool, 0f),
             (LoadParam, VRCExpressionParameters.ValueType.Int, 0f),
             (SaveParam, VRCExpressionParameters.ValueType.Int, 0f),
+            (ResetParam, VRCExpressionParameters.ValueType.Bool, 0f),
+            (RollParam, VRCExpressionParameters.ValueType.Bool, 0f),
+            (PauseParam, VRCExpressionParameters.ValueType.Bool, 0f),
         };
 
         [MenuItem("Tools/HeightShift/Install VRChat Menu")]
@@ -245,6 +252,10 @@ namespace HeightShift
             menu.controls.Add(Button("Shrink", ShrinkParam, 1, icon("shrink")));
             menu.controls.Add(Button("Play / Pause", PlayParam, 1, icon("play_pause")));
             menu.controls.Add(Button("Stop", StopParam, 1, icon("stop")));
+            menu.controls.Add(Button("Own height", ResetParam, 1, icon("own_height")));
+            menu.controls.Add(Button("Random height", RollParam, 1, icon("roll")));
+            // a Toggle: the size parameter cards wait while it is on
+            menu.controls.Add(Toggle("Pause cards", PauseParam, 1, icon("pause_cards")));
 
             var saved = subMenu("SavedHeights");
             saved.controls.Clear();
@@ -271,6 +282,14 @@ namespace HeightShift
                 parameter = new VRCExpressionsMenu.Control.Parameter { name = param },
                 value = value,
             };
+        }
+
+        private static VRCExpressionsMenu.Control Toggle(string name, string param, int value,
+                                                         Texture2D icon)
+        {
+            var control = Button(name, param, value, icon);
+            control.type = VRCExpressionsMenu.Control.ControlType.Toggle;
+            return control;
         }
 
         private static VRCExpressionsMenu.Control Folder(string name, VRCExpressionsMenu menu,

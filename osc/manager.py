@@ -61,6 +61,8 @@ from constants import (
     VRCHAT_OSC_PATH,
 )
 
+from height_logic import flatten_parameters
+
 from .diag_log import DiagLog
 
 PARAMETERS = "/avatar/parameters/"
@@ -137,9 +139,12 @@ class _WantedOnly(Dispatcher):
     def __init__(self, seen) -> None:
         super().__init__()
         self._seen = seen
+        # the size parameters' addresses (VRChatOSCManager.watch_parameters):
+        # one tuple, swapped whole, so the receive thread never sees half
+        self.extra: tuple = ()
 
     def call_handlers_for_packet(self, data, client_address):
-        if data.startswith(self.WANTED):
+        if data.startswith(self.WANTED) or (self.extra and data.startswith(self.extra)):
             return super().call_handlers_for_packet(data, client_address)
         self._seen()
         return []
@@ -186,6 +191,9 @@ class VRChatOSCManager:
         self.on_menu_parameter: Optional[Callable[[str, Any, float], None]] = None
         # VRChat's ScaleFactor (see SCALE_FACTOR): value, seen at
         self.on_scale_factor: Optional[Callable[[float, float], None]] = None
+        # a watched avatar parameter (watch_parameters): name, value, seen at
+        self.on_parameter: Optional[Callable[[str, Any, float], None]] = None
+        self._watched: frozenset = frozenset()
 
         # --- VRChat ---
         self.vrc_ip = LOOPBACK                 # always: every socket here is loopback-only
@@ -701,6 +709,11 @@ class VRChatOSCManager:
                 cb = self.on_scale_factor
                 if cb is not None:
                     cb(float(args[0]), seen_at)
+            if args and address.startswith(PARAMETERS):
+                name = address[len(PARAMETERS):]
+                cb = self.on_parameter
+                if cb is not None and name in self._watched:
+                    cb(name, args[0], seen_at)
         except Exception as e:
             # Never let one bad packet stop the receive thread.
             self._handler_errors += 1
@@ -751,6 +764,33 @@ class VRChatOSCManager:
         self._log(f"GET {SCALE_FACTOR} = {value}")
         return value
 
+    def watch_parameters(self, names) -> None:
+        """Pass these avatar parameters on (on_parameter): the size
+        parameters. Every other parameter VRChat streams stays undecoded."""
+        names = frozenset(n for n in names if n)
+        self._watched = names
+        self.dispatcher.extra = tuple(sorted((PARAMETERS + n).encode() + b"\0" for n in names))
+
+    def read_parameters(self) -> Optional[Dict[str, Tuple[str, Any]]]:
+        """The avatar's parameters from VRChat's OSCQuery tree: {name:
+        (type, value)} (height_logic.flatten_parameters), or None when
+        VRChat couldn't be asked."""
+        port = self.http_port
+        if not self.is_connected or not port:
+            return None
+        path = PARAMETERS.rstrip("/")
+        try:
+            r = requests.get(f"http://{LOOPBACK}:{port}{path}", timeout=VRCHAT_HTTP_TIMEOUT)
+            if r.status_code == 404:
+                return {}
+            if r.status_code != 200:
+                self._log(f"GET {path}: HTTP {r.status_code}")
+                return None
+            return flatten_parameters(r.json())
+        except Exception as e:
+            self._log(f"GET {path} failed: {type(e).__name__}: {e}")
+            return None
+
     def has_menu(self) -> Optional[bool]:
         """Does the avatar in VRChat have HeightShift's menu? Asks VRChat's
         OSCQuery tree for /avatar/parameters/HeightShift: True / False, or
@@ -770,7 +810,8 @@ class VRChatOSCManager:
             self._log(f"GET {path}: HTTP {r.status_code} {r.text[:200]!r}")
             return None
         try:
-            return bool(r.json().get("CONTENTS"))
+            # the menu's own (a contact example alone brings only Contact/)
+            return "Grow" in (r.json().get("CONTENTS") or {})
         except Exception:
             return None
 

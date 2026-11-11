@@ -193,8 +193,50 @@ def save(p):
     _slot_tray(p)
 
 
+def own_height(p):
+    """Back to the avatar's own height: a green turn-back arrow by the ruler."""
+    _pen(p, GREEN, W * 1.25)
+    box = QRectF(56, 136, 240, 240)
+    p.drawArc(box, 100 * 16, 290 * 16)
+    # the arrowhead at the arc's open end (top), pointing back along it
+    end = QPointF(box.center().x() + 120 * math.cos(math.radians(100)),
+                  box.center().y() - 120 * math.sin(math.radians(100)))
+    path = QPainterPath(QPointF(end.x() + 70, end.y() - 46))
+    path.lineTo(end)
+    path.lineTo(QPointF(end.x() + 62, end.y() + 58))
+    p.drawPath(path)
+    _ruler(p, 380, 60, 452, long=60, short=36)
+
+
+def roll(p):
+    """A random height: a die, its pips green (it changes your height)."""
+    _pen(p)
+    p.drawRoundedRect(QRectF(76, 76, 360, 360), 64, 64)
+    _fill(p, GREEN)
+    for x, y in ((166, 166), (256, 256), (346, 346), (346, 166), (166, 346)):
+        p.drawEllipse(QPointF(x, y), 34, 34)
+
+
+def pause_cards(p):
+    """Pause the size parameter cards: two cards, the pause bars on top."""
+    _pen(p)
+    p.drawRoundedRect(QRectF(60, 120, 250, 320), 34, 34)
+    back = QPainterPath(QPointF(150, 120))
+    back.lineTo(QPointF(150, 96))
+    back.arcTo(QRectF(150, 62, 68, 68), 180, -90)
+    back.lineTo(QPointF(366, 62))
+    back.arcTo(QRectF(332, 62, 68, 68), 90, -90)
+    back.lineTo(QPointF(400, 340))
+    back.lineTo(QPointF(310, 340))
+    p.drawPath(back)
+    _fill(p, WHITE)
+    p.drawRoundedRect(QRectF(330, 300, 48, 160), 14, 14)
+    p.drawRoundedRect(QRectF(410, 300, 48, 160), 14, 14)
+
+
 ICONS = {
     "grow": grow, "shrink": shrink, "play_pause": play_pause, "stop": stop,
+    "own_height": own_height, "roll": roll, "pause_cards": pause_cards,
     "saved": saved, "save": save,
 }
 for _n in range(1, 5):

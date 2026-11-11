@@ -27,10 +27,12 @@ from constants import (
     DEFAULT_PRESERVE_HEIGHT_ON_AVATAR,
     DEFAULT_PROFILES,
     DEFAULT_SETTINGS_OPEN,
+    DEFAULT_SIZE_PARAMS,
     DEFAULT_STARTUP_HEIGHT_CM,
     DEFAULT_TRANSITION_DURATION,
     DEFAULT_TRANSITION_TARGET_CM,
     DEFAULT_TRANSITION_UNIT,
+    DEFAULT_VR_RESET,
     LEGACY_CONFIG_DIR_NAME,
     MAX_HEIGHT_CM,
     MIN_HEIGHT_CM,
@@ -88,8 +90,16 @@ def default_config() -> Dict[str, Any]:
         "hotkey_grow": {"vk": 0x6B, "mods": 0},      # numpad +
         "hotkey_shrink": {"vk": 0x6D, "mods": 0},    # numpad -
         "hotkey_reset": {"vk": 0x6A, "mods": 0},     # numpad *: the avatar's own height
+        # numpad 1-9: saved heights 1-9
+        "hotkey_slots": [{"vk": 0x61 + i, "mods": 0} for i in range(SAVED_SLOTS)],
+        "vr_reset_gesture": DEFAULT_VR_RESET,        # both fists + jump: own height
+        "vr_reset_left": 1, "vr_reset_right": 1,     # VRChat's gestures: 1 = fist
+        "vr_reset_then": "jump",                     # or "hold"
         "hotkey_speed": DEFAULT_HOTKEY_SPEED,
         "hotkey_speed_unit": DEFAULT_HOTKEY_SPEED_UNIT,
+        # avatar parameters that grow / shrink (height_logic.clean_size_param)
+        "size_params": [dict(card) for card in DEFAULT_SIZE_PARAMS],
+        "size_params_on": True,
     }
 
 

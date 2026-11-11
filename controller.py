@@ -20,6 +20,11 @@ The in-VRChat menu (docs/VRCHAT_MENU.md) is one more way in, never another
 way out: its Grow / Shrink are held like the hotkeys, its Play / Stop / Load
 / Save do what the window's buttons do, through the same paths.
 
+Size parameters are another: avatar parameters (a contact, a toggle, a
+radial) that grow or shrink you while they're on, each card at its own
+speed. They go through _write() too, wait while a key or menu button is
+held, and stop a running transition when they start.
+
 Updates (updater.py, VRCParameterRelay's): main.py asks GitHub once at every
 start; a newer release lights the header's chip and opens the update window,
 unless that version was set to "don't remind me". Install now downloads and
@@ -28,11 +33,13 @@ checks it on a worker thread, hands the swap to a helper and closes the app.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import os
+import random
 import threading
 import time
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication
@@ -46,6 +53,7 @@ from constants import (
     BURST_DURATION,
     BURST_INTERVAL,
     CLICK_ACTIONS,
+    CONTACT_RANDOM,
     DEFAULT_CLICK_ACTION,
     DEFAULT_HIDE_CONSOLE,
     DEFAULT_OSC_ROUTER_518,
@@ -55,30 +63,51 @@ from constants import (
     DEFAULT_HOTKEY_SPEED_UNIT,
     DEFAULT_HOTKEYS_ENABLED,
     DEFAULT_SETTINGS_OPEN,
+    DEFAULT_SIZE_PARAM_SPEED,
     DEFAULT_STARTUP_HEIGHT_CM,
     DEFAULT_TRANSITION_DURATION,
     DEFAULT_TRANSITION_TARGET_CM,
     DEFAULT_TRANSITION_UNIT,
+    DEFAULT_VR_RESET,
     ECHO_HOLD_S,
+    GESTURE_FIST,
+    GESTURE_LEFT,
+    GESTURE_RIGHT,
+    GESTURES,
+    GROUNDED,
     HOTKEY_SPEED_MAX_CM,
     HOTKEY_SPEED_MAX_PCT,
     HOTKEY_AWAKE_S,
     HOTKEY_IDLE_POLL_MS,
     HOTKEY_SPEED_MIN,
     MAX_HEIGHT_CM,
+    MENU_PARAMS,
+    MENU_PAUSE,
     MIN_HEIGHT_CM,
+    PICKER_REFRESH_MS,
     PRESERVE_MAX_RETRIES,
     PRESERVE_TOLERANCE_CM,
     SEND_RATES,
+    SIZE_PARAM_MAX_STEP_S,
+    SIZE_PARAMS_MAX,
     TRANSITION_MAX_DURATION_S,
     TRANSITION_MIN_DURATION_S,
     TRANSITION_MIN_STEP_CM,
     UNLOCKED_MAX_HEIGHT_CM,
+    VR_RESET_COOLDOWN_S,
+    VR_RESET_HOLD_S,
+    VR_THEN_HOLD,
+    VR_THEN_JUMP,
 )
 from height_logic import (
     CURVE_LINEAR,
     CURVE_SCALE,
     CURVES,
+    KIND_PARAM,
+    KIND_RANDOM,
+    PARAM_GROW,
+    PARAM_SHRINK,
+    PARAM_TYPES,
     SPEED_CM,
     SPEED_UNITS,
     HeightHistory,
@@ -87,6 +116,8 @@ from height_logic import (
     Transition,
     check_range,
     check_write,
+    clean_size_param,
+    drive_height,
     describe_duration,
     format_duration,
     format_height,
@@ -94,10 +125,18 @@ from height_logic import (
     is_number,
     max_height_cm,
     default_height_cm,
+    param_level,
+    param_rose,
+    random_height,
     reported_cm,
     same_height,
+    speed_max,
+    speed_text,
+    gestures_match,
+    vr_reset_gesture,
 )
-from hotkeys import DEFAULT_GROW, DEFAULT_RESET, DEFAULT_SHRINK, Hotkey, KeyReader, key_name
+from hotkeys import (DEFAULT_GROW, DEFAULT_RESET, DEFAULT_SHRINK, DEFAULT_SLOT_KEYS, Hotkey,
+                     KeyReader, key_name)
 from osc.manager import VRChatOSCManager
 from osc.router518 import ROUTER, Router518KeepAlive
 from ui import theme
@@ -138,6 +177,8 @@ class HeightShiftController(QObject):
     _sig_scale = Signal(float, float)         # VRChat's ScaleFactor, seen at
     _sig_reset_read = Signal(object)          # ScaleFactor read for a reset (or None)
     _sig_scale_read = Signal(object)          # ScaleFactor read to show the own height
+    _sig_param = Signal(str, object, float)   # a size parameter's avatar parameter, value, seen at
+    _sig_params_read = Signal(int, object)    # read round, {name: (type, value)} or None
     _sig_update_checked = Signal(object, bool)   # release info or None, asked by hand
     _sig_update_progress = Signal(int, int)      # downloaded bytes, total (0 = unknown)
     _sig_update_downloaded = Signal(str)         # the verified exe, "" when it failed
@@ -180,6 +221,22 @@ class HeightShiftController(QObject):
         self.hotkey_shrink = Hotkey.from_config(c.config.get("hotkey_shrink")) or DEFAULT_SHRINK
         self.hotkey_reset = Hotkey.from_config(c.config.get("hotkey_reset")) or DEFAULT_RESET
         self._reset_key_down = False
+        # saved heights 1-9: numpad 1-9 unless changed
+        raw = c.config.get("hotkey_slots")
+        raw = raw if isinstance(raw, list) else []
+        self.hotkey_slots = [
+            (Hotkey.from_config(raw[i]) if i < len(raw) else None) or DEFAULT_SLOT_KEYS[i]
+            for i in range(PROFILE_COUNT)]
+        self._slot_keys_down: set = set()
+        # a gesture in VR (both fists + jump by default): the avatar's own height
+        self.vr_reset = c.get_bool("vr_reset_gesture", DEFAULT_VR_RESET)
+        codes = tuple(code for code, _name in GESTURES)
+        self.vr_left = c.get_choice("vr_reset_left", GESTURE_FIST, codes)
+        self.vr_right = c.get_choice("vr_reset_right", GESTURE_FIST, codes)
+        self.vr_then = c.get_choice("vr_reset_then", VR_THEN_JUMP, (VR_THEN_JUMP, VR_THEN_HOLD))
+        self._vr_reset_at = -1e9
+        self._vr_hold_done = False          # held: fired once, until a hand lets go
+        self._vr_hold_timer = self._single_shot(self._vr_hold_fire)
         # VRChat's ScaleFactor for the avatar worn now (current / default eye
         # height): what "reset to the avatar's height" needs. None = not known.
         self.scale_factor: Optional[float] = None
@@ -220,6 +277,39 @@ class HeightShiftController(QObject):
         self._tick_timer.timeout.connect(self._transition_tick)
         self._last_tick_sent: Optional[float] = None
 
+        # --- size parameters: avatar parameters that grow / shrink ---------
+        # The cards in order, each with an id for this run (the window's
+        # signals name a card by it). Values come from VRChat as they change
+        # (only these addresses are decoded, osc/manager.py), the first ones
+        # from its OSCQuery tree.
+        self._param_ids = itertools.count(1)
+        self.size_params: List[Dict[str, Any]] = []
+        raw = c.config.get("size_params")
+        for entry in (raw if isinstance(raw, list) else [])[:SIZE_PARAMS_MAX]:
+            clean = clean_size_param(entry)
+            if clean is not None:
+                clean["id"] = f"sp{next(self._param_ids)}"
+                self.size_params.append(clean)
+        self.size_params_on = c.get_bool("size_params_on", True)
+        self._vrchat_pause = False          # HeightShift/Pause is on in VRChat
+        self._last_roll: Dict[str, float] = {}      # random card id -> its last height
+        self._random = random.Random()
+        self._param_values: Dict[str, Any] = {}           # name -> what VRChat last said
+        self._avatar_params: Optional[Dict[str, str]] = None  # name -> type; None: not read
+        self._param_timer = QTimer(self)
+        self._param_timer.setTimerType(Qt.PreciseTimer)
+        self._param_timer.timeout.connect(self._param_tick)
+        self._param_level: Optional[float] = None   # the height they drive; None: not driving
+        self._param_sent: Optional[float] = None    # the last one sent
+        self._param_from: Optional[float] = None    # where this push started
+        self._param_t = 0.0
+        self._param_at_bound = False
+        self._params_round = 0                      # bumped by an avatar change / disconnect
+        self._params_reading = False
+        self._picker_timer = QTimer(self)
+        self._picker_timer.setInterval(PICKER_REFRESH_MS)
+        self._picker_timer.timeout.connect(lambda: self._read_params())
+
         # --- hold-to-grow hotkeys -----------------------------------------
         # Polled, never hooked (see hotkeys.py). While a key is held the height
         # follows height_logic.hold_height from where the hold started.
@@ -252,6 +342,9 @@ class HeightShiftController(QObject):
         self.osc.on_scale_factor = lambda f, t: self._sig_scale.emit(float(f), float(t))
         self.osc.on_menu_parameter = (
             lambda name, value, t: self._sig_menu.emit(str(name), value, float(t)))
+        self.osc.on_parameter = (
+            lambda name, value, t: self._sig_param.emit(str(name), value, float(t)))
+        self._watch_params()
 
         # 518 router fallback (see 518Hub docs/STANDARD.md). The OSC receive
         # port binds lazily once VRChat is discovered, so the getter re-reads
@@ -270,6 +363,8 @@ class HeightShiftController(QObject):
         self._sig_query_missed.connect(self._on_query_missed, q)
         self._sig_menu.connect(self._on_menu, q)
         self._sig_menu_present.connect(self._on_menu_present, q)
+        self._sig_param.connect(self._on_param, q)
+        self._sig_params_read.connect(self._on_params_read, q)
         self.activate_requested.connect(self.window.bring_to_front, q)
 
         self._wire_ui()
@@ -314,9 +409,18 @@ class HeightShiftController(QObject):
         w.hotkey_captured.connect(self._on_hotkey_captured)
         w.hotkey_speed_changed.connect(self._on_hotkey_speed)
         w.hotkeys_vrchat_only_toggled.connect(self._on_hotkeys_vrchat_only)
+        w.vr_reset_changed.connect(self._on_vr_reset)
         w.slot_action_changed.connect(self._on_slot_action)
         w.scale_mode_changed.connect(self._on_scale_mode)
         w.reset_clicked.connect(lambda: self.reset_to_default("button"))
+        w.size_params_toggled.connect(self._on_size_params_toggled)
+        w.size_param_added.connect(self._on_size_param_added)
+        w.size_param_changed.connect(self._on_size_param_changed)
+        w.size_param_removed.connect(self._on_size_param_removed)
+        w.size_param_moved.connect(self._on_size_param_moved)
+        w.size_param_roll.connect(lambda pid: self._roll(pid, "🎲"))
+        w.param_picker_shown.connect(self._on_picker_shown)
+        w.param_picker_refresh.connect(lambda: self._read_params(force=True))
         w.update_chip_clicked.connect(self._open_update)
         w.check_updates_clicked.connect(lambda: self.check_for_updates(manual=True))
         w.update_install_clicked.connect(self._on_update_install)
@@ -354,6 +458,8 @@ class HeightShiftController(QObject):
         w.set_scale_mode(self.scale_mode)
         self._show_hotkeys()
         self._show_menu_status()
+        self._show_size_params()
+        self._show_vr_reset()
         w.set_updates_info(updater.is_self_updatable())
         w.set_connection(False)
         w.set_ports(None, None)
@@ -481,6 +587,9 @@ class HeightShiftController(QObject):
         self._tick_timer.stop()
         self._burst_timer.stop()
         self._hotkey_timer.stop()
+        self._param_timer.stop()
+        self._picker_timer.stop()
+        self.window.close_picker()          # the window's own width is what is kept
         self._save_geometry()
         try:
             self.router518.stop()
@@ -611,6 +720,7 @@ class HeightShiftController(QObject):
                 self._start_reading(QUERY_FIRST_DELAY_MS)
         self._check_menu(QUERY_FIRST_DELAY_MS)
         self._read_scale_soon(QUERY_FIRST_DELAY_MS + 500)
+        self._read_params_soon(QUERY_FIRST_DELAY_MS + 800)
         self._show_menu_status()                   # "checking…" until VRChat answers
         self._show_height()
         self._refresh()
@@ -633,6 +743,7 @@ class HeightShiftController(QObject):
         self._menu_round += 1
         self._show_menu_status()
         self._sync_hotkey_timer()
+        self._forget_param_values()
         note = ""
         if self.transition is not None and self.transition.playing:
             note = " The transition keeps its schedule and resumes sending then."
@@ -655,6 +766,9 @@ class HeightShiftController(QObject):
         self._menu_present = None
         self._check_menu(QUERY_AFTER_AVATAR_CHANGE_MS)
         self._show_menu_status()
+        # the size parameters' values were the old avatar's
+        self._forget_param_values()
+        self._read_params_soon(QUERY_AFTER_AVATAR_CHANGE_MS)
         if self._holding:
             # The held key owns the height and resends it ten times a second
             # anyway, onto the new avatar too: no burst to fight it.
@@ -816,6 +930,8 @@ class HeightShiftController(QObject):
             if self._hold_source == "hotkey":
                 return "Let go of the hotkey first."
             return "Let go of Grow / Shrink in the VRChat menu first."
+        if self._param_level is not None:
+            return "A size parameter is changing your height — pause it first."
         target, _secs, _curve, _v, _u = self._inputs()
         err = check_write(target, self.unlocked)
         if err:
@@ -955,9 +1071,30 @@ class HeightShiftController(QObject):
     def _reset_key_held(self) -> bool:
         if not (self.hotkeys_on and self.keys.available) or self.window.capturing_key:
             return False
-        if not self.keys.is_held(self.hotkey_reset):
+        if not self.keys.pressed(self.hotkey_reset):
             return False
         return not self.hotkeys_vrchat_only or self.keys.vrchat_in_front()
+
+    def _slot_keys_pressed(self) -> set:
+        """The saved heights whose key is down (or was tapped since the last
+        poll), if the hotkeys may act."""
+        if not (self.hotkeys_on and self.keys.available) or self.window.capturing_key:
+            return set()
+        down = {i for i, key in enumerate(self.hotkey_slots, start=1) if self.keys.pressed(key)}
+        if down and self.hotkeys_vrchat_only and not self.keys.vrchat_in_front():
+            return set()
+        return down
+
+    def _slot_key(self, num: int) -> None:
+        """A saved height's key: as a click on it (its own action)."""
+        if self.profiles.get(f"profile{num}") is None:
+            self._status(f"Saved height {num} is empty ({key_name(self.hotkey_slots[num - 1])}).")
+            return
+        if self.transition is not None:
+            self._status("The target stays put while the transition runs — Stop it first.",
+                         warn=True)
+            return
+        self.window.pick_profile(num)
 
     # --- back to the avatar's own height -----------------------------------
 
@@ -1037,6 +1174,11 @@ class HeightShiftController(QObject):
         if down and not self._reset_key_down:
             self.reset_to_default("hotkey")
         self._reset_key_down = down
+        slots = self._slot_keys_pressed()
+        for num in sorted(slots - self._slot_keys_down):
+            self._slot_key(num)
+        self._slot_keys_down = slots
+        down = down or bool(slots)
         direction = self._held_direction()
         if direction != self._hold_dir:
             self._hold_change(direction)
@@ -1113,6 +1255,7 @@ class HeightShiftController(QObject):
             available=self.keys.available, enabled=self.hotkeys_on,
             grow=key_name(self.hotkey_grow), shrink=key_name(self.hotkey_shrink),
             reset=key_name(self.hotkey_reset),
+            slots=[key_name(k) for k in self.hotkey_slots],
             speed=self.hotkey_speed, unit=self.hotkey_unit,
             speed_max=_speed_max(self.hotkey_unit), vrchat_only=self.hotkeys_vrchat_only)
 
@@ -1131,22 +1274,102 @@ class HeightShiftController(QObject):
 
     def _on_hotkey_captured(self, which: str, vk: int, mods: int) -> None:
         hotkey = Hotkey.from_config({"vk": vk, "mods": mods})
-        if hotkey is None or which not in self._KEY_JOBS:
+        slot = which.startswith("slot") and which[4:].isdigit() and \
+            1 <= int(which[4:]) <= PROFILE_COUNT
+        if hotkey is None or not (which in self._KEY_JOBS or slot):
             self._status("That key can't be a hotkey on its own.", warn=True)
             self._show_hotkeys()
             return
         current = {"grow": self.hotkey_grow, "shrink": self.hotkey_shrink,
                    "reset": self.hotkey_reset}
+        current.update({f"slot{i}": key for i, key in enumerate(self.hotkey_slots, start=1)})
         for other, key in current.items():
             if other != which and key == hotkey:
-                self._status(f"{key_name(hotkey)} already {self._KEY_JOBS[other][1]} — "
+                self._status(f"{key_name(hotkey)} already {self._key_job(other)[1]} — "
                              "pick another key.", warn=True)
                 self._show_hotkeys()
                 return
-        setattr(self, f"hotkey_{which}", hotkey)
-        self.config.update_config({f"hotkey_{which}": hotkey.to_config()})
+        if which.startswith("slot"):
+            self.hotkey_slots[int(which[4:]) - 1] = hotkey
+            self.config.update_config({"hotkey_slots": [k.to_config() for k in self.hotkey_slots]})
+        else:
+            setattr(self, f"hotkey_{which}", hotkey)
+            self.config.update_config({f"hotkey_{which}": hotkey.to_config()})
         self._show_hotkeys()
-        self._status(f"{self._KEY_JOBS[which][0]} key: {key_name(hotkey)}.")
+        self._status(f"{self._key_job(which)[0]} key: {key_name(hotkey)}.")
+
+    def _key_job(self, which: str):
+        if which.startswith("slot"):
+            return f"Saved height {which[4:]}", f"loads saved height {which[4:]}"
+        return self._KEY_JOBS[which]
+
+    # --- the VR gesture: back to the avatar's own height ------------------------
+
+    def _vr_gesture_name(self) -> str:
+        names = dict(GESTURES)
+        hands = (f"both {names[self.vr_left].lower()}s" if self.vr_left == self.vr_right
+                 else f"{names[self.vr_left].lower()} (left) + {names[self.vr_right].lower()} "
+                      "(right)")
+        return hands + (" + jump" if self.vr_then == VR_THEN_JUMP
+                        else f", held {VR_RESET_HOLD_S:g} s")
+
+    def _vr_gesture(self, name: str, old, value, seen_at: float) -> None:
+        left = self._param_values.get(GESTURE_LEFT)
+        right = self._param_values.get(GESTURE_RIGHT)
+        if self.vr_then == VR_THEN_JUMP:
+            if (name == GROUNDED
+                    and vr_reset_gesture(left, right, old, value, self.vr_left, self.vr_right)
+                    and seen_at - self._vr_reset_at >= VR_RESET_COOLDOWN_S):
+                self._vr_reset_at = seen_at
+                self.reset_to_default(self._vr_gesture_name())
+            return
+        if name == GROUNDED:
+            return
+        if gestures_match(left, right, self.vr_left, self.vr_right):
+            if not self._vr_hold_done and not self._vr_hold_timer.isActive():
+                self._vr_hold_timer.start(int(VR_RESET_HOLD_S * 1000))
+        else:
+            self._vr_hold_timer.stop()
+            self._vr_hold_done = False          # let go: the next hold counts again
+
+    def _vr_hold_fire(self) -> None:
+        if not (self.vr_reset and self.vr_then == VR_THEN_HOLD and gestures_match(
+                self._param_values.get(GESTURE_LEFT), self._param_values.get(GESTURE_RIGHT),
+                self.vr_left, self.vr_right)):
+            return
+        self._vr_hold_done = True
+        self.reset_to_default(self._vr_gesture_name())
+
+    def _on_vr_reset(self, changes) -> None:
+        if not isinstance(changes, dict):
+            return
+        codes = tuple(code for code, _name in GESTURES)
+        if isinstance(changes.get("on"), bool):
+            self.vr_reset = changes["on"]
+        if changes.get("left") in codes:
+            self.vr_left = changes["left"]
+        if changes.get("right") in codes:
+            self.vr_right = changes["right"]
+        if changes.get("then") in (VR_THEN_JUMP, VR_THEN_HOLD):
+            self.vr_then = changes["then"]
+        self._vr_hold_timer.stop()
+        self._vr_hold_done = False
+        self.config.update_config({"vr_reset_gesture": self.vr_reset,
+                                   "vr_reset_left": self.vr_left,
+                                   "vr_reset_right": self.vr_right,
+                                   "vr_reset_then": self.vr_then})
+        self._watch_params()
+        self._show_vr_reset()
+        if self.vr_reset:
+            self._read_params()
+            self._status(f"VR: {self._vr_gesture_name()} puts you back at your own height.")
+            if self.vr_left == self.vr_right == 0 and self.vr_then == VR_THEN_HOLD:
+                self._status("Neutral on both hands, held, happens all the time — pick "
+                             "another gesture or jump.", warn=True)
+
+    def _show_vr_reset(self) -> None:
+        self.window.set_vr_reset(self.vr_reset, self.vr_left, self.vr_right, self.vr_then,
+                                 self._vr_gesture_name())
 
     def _on_hotkey_speed(self, speed: float, unit: str) -> None:
         if unit not in SPEED_UNITS:
@@ -1165,13 +1388,415 @@ class HeightShiftController(QObject):
         self.config.update_config({"hotkeys_vrchat_only": self.hotkeys_vrchat_only})
 
     # ------------------------------------------------------------------
+    # Size parameters
+    # ------------------------------------------------------------------
+
+    def _size_param(self, pid: str) -> Optional[Dict[str, Any]]:
+        return next((p for p in self.size_params if p["id"] == pid), None)
+
+    def _save_size_params(self) -> None:
+        self.config.update_config({"size_params": [
+            {k: v for k, v in p.items() if k != "id"} for p in self.size_params]})
+
+    @property
+    def _cards_on(self) -> bool:
+        """The switch for all of them, and HeightShift/Pause from VRChat."""
+        return self.size_params_on and not self._vrchat_pause
+
+    def _watched_names(self) -> set:
+        names = {p["param"] for p in self.size_params if p["param"]}
+        if self.vr_reset:
+            names |= {GESTURE_LEFT, GESTURE_RIGHT, GROUNDED}
+        return names
+
+    def _watch_params(self) -> None:
+        self.osc.watch_parameters(self._watched_names())
+
+    def _show_size_params(self) -> None:
+        """The cards, rebuilt (one added, removed, sorted or given its parameter)."""
+        self.window.set_size_params(
+            [dict(p) for p in self.size_params], self.size_params_on,
+            "Paused from VRChat (HeightShift/Pause is on)." if self._vrchat_pause else "")
+        self._show_param_live()
+
+    def _param_terms(self):
+        """(card, direction, level) for every card pushing right now."""
+        if not self._cards_on:
+            return []
+        out = []
+        for p in self.size_params:
+            if p["kind"] == KIND_PARAM and p["on"] and p["param"]:
+                level = param_level(self._param_values.get(p["param"]))
+                if level > 0:
+                    out.append((p, 1 if p["dir"] == PARAM_GROW else -1, level))
+        return out
+
+    @staticmethod
+    def _param_direction(terms) -> int:
+        """Which way they push together: +1, -1, or 0 (they cancel out)."""
+        h = 170.0
+        moved = drive_height(h, 1.0, [(d, p["speed"], p["unit"], lvl) for p, d, lvl in terms]) - h
+        return 0 if abs(moved) < 1e-9 else (1 if moved > 0 else -1)
+
+    def _param_wait(self) -> str:
+        """Why the size parameters can't move the height now ('' = they can)."""
+        if not self.connected:
+            return "waiting for VRChat"
+        if self.height_cm is None:
+            return "waiting for the current height"
+        if self._holding:
+            return ("the held key goes first" if self._hold_source == "hotkey"
+                    else "the menu's Grow / Shrink goes first")
+        if self._burst_left > 0:
+            return "keeping your height through the avatar change"
+        return ""
+
+    def _on_param(self, name: str, value, seen_at: float) -> None:
+        old = self._param_values.get(name)
+        self._param_values[name] = value
+        if self.vr_reset and name in (GESTURE_LEFT, GESTURE_RIGHT, GROUNDED):
+            self._vr_gesture(name, old, value, seen_at)
+        if param_rose(old, value) and self._cards_on:
+            for p in self.size_params:
+                if p["kind"] == KIND_RANDOM and p["on"] and p["param"] == name:
+                    self._roll(p["id"], f"“{name}”")
+        self._sync_param_timer()
+        self.window.pace("params", self._show_param_live)
+
+    def _sync_param_timer(self) -> None:
+        if self.connected and self._param_terms():
+            if not self._param_timer.isActive():
+                self._param_t = now()
+                self._param_timer.start()
+        elif self._param_timer.isActive() or self._param_level is not None:
+            self._param_stop()
+
+    def _param_tick(self) -> None:
+        n = now()
+        dt = min(SIZE_PARAM_MAX_STEP_S, max(0.0, n - self._param_t))
+        self._param_t = n
+        terms = self._param_terms()
+        if not terms or not self.connected:
+            self._param_stop()
+            return
+        if self._param_wait():
+            return                       # carries on from wherever the height is then
+        if self._param_level is None:
+            # A manual change, like a held key: it ends a transition.
+            self._take_over("size parameter")
+            self._param_from = self.height_cm
+            way = self._param_direction(terms)
+            names = ", ".join(f"“{p['param']}”" for p, _d, _l in terms)
+            self._status(f"{'Growing' if way >= 0 else 'Shrinking'}: {names} "
+                         f"{'is' if len(terms) == 1 else 'are'} on.")
+        if self._param_level is None or not same_height(self.height_cm, self._param_sent):
+            # Starting, or something else moved the height since the last
+            # send (a nudge, a held key, VRChat itself): from there on.
+            self._param_level = self._param_sent = self.height_cm
+            self._param_at_bound = False
+            self._refresh_activity()
+            self._refresh_transition()
+        top = max_height_cm(self.unlocked)
+        target = drive_height(self._param_level, dt,
+                              [(d, p["speed"], p["unit"], lvl) for p, d, lvl in terms])
+        value = min(top, max(float(MIN_HEIGHT_CM), target))
+        self._param_level = value
+        if abs(value - self._param_sent) < TRANSITION_MIN_STEP_CM:
+            if value != target and not self._param_at_bound:
+                self._param_at_bound = True
+                self._status(f"At the {format_height(value)} "
+                             + ("limit (tick “Unlock upper limit” to go higher)."
+                                if value >= top else "minimum."))
+            return
+        if self._write(value, "size parameter", "size parameter", quiet=True):
+            self._param_sent = value
+            self.window.pace("transition", self._refresh_transition)
+
+    def _param_stop(self) -> None:
+        self._param_timer.stop()
+        was, start, end = self._param_level, self._param_from, self._param_sent
+        self._param_level = self._param_sent = self._param_from = None
+        self._param_at_bound = False
+        if was is None:
+            return
+        if start is not None and end is not None and not same_height(start, end):
+            self._status(f"{'Grew' if end > start else 'Shrank'} to {format_height(end)} "
+                         "(size parameter).")
+        self._refresh_activity()
+        self._refresh_transition()
+
+    def _forget_param_values(self) -> None:
+        """An avatar change or a disconnect: what the parameters said, and
+        which ones the avatar has, belonged to the old one."""
+        self._params_round += 1
+        self._params_reading = False
+        self._param_values.clear()
+        self._avatar_params = None
+        if self._vrchat_pause:
+            self._vrchat_pause = False            # VRChat sends it again if it is still on
+            self._show_size_params()
+        self._sync_param_timer()
+        self._show_param_live()
+        if self.window.picker_open:
+            self.window.set_param_list({} if not self.connected else None,
+                                       "Waiting for VRChat." if not self.connected
+                                       else "Reading the avatar's parameters…")
+
+    def _show_param_live(self) -> None:
+        """Each card's line: its parameter's value and what it does now."""
+        wait = self._param_wait()
+        for p in self.size_params:
+            name = p["param"]
+            if p["kind"] == KIND_RANDOM:
+                text, state = self._random_line(p)
+            elif not name:
+                text, state = "Pick a parameter — or drag one onto this card.", ""
+            elif not self.connected:
+                text, state = "waiting for VRChat", ""
+            elif name not in self._param_values:
+                missing = self._avatar_params is not None and name not in self._avatar_params
+                text, state = (("not on this avatar", "warn") if missing
+                               else ("no value from VRChat yet", ""))
+            else:
+                value = self._param_values[name]
+                level = param_level(value)
+                shown = (("on" if value else "off") if isinstance(value, bool)
+                         else f"{value:.2f}" if isinstance(value, float) else str(value))
+                if not p["on"]:
+                    text, state = f"{shown} · paused", "warn"
+                elif not self._cards_on:
+                    text, state = f"{shown} · all paused", "warn"
+                elif level <= 0:
+                    text, state = f"{shown} · idle", ""
+                else:
+                    rate = speed_text(p["speed"] * level, p["unit"],
+                                      1 if p["dir"] == PARAM_GROW else -1)
+                    text, state = f"{shown} → {rate}", "run"
+                    if wait:
+                        text, state = f"{text} · {wait}", "warn"
+            self.window.set_size_param_live(p["id"], text, state)
+
+    def _random_line(self, p: Dict[str, Any]):
+        last = self._last_roll.get(p["id"])
+        parts = [f"Last roll: {format_height(last)}" if last is not None
+                 else f"{format_height(p['min'])} – {format_height(p['max'])}, even on the scale"]
+        name, state = p["param"], ""
+        if name:
+            if not p["on"] or not self._cards_on:
+                parts.append("trigger paused")
+                state = "warn"
+            elif not self.connected:
+                parts.append("trigger waits for VRChat")
+            elif name in self._param_values:
+                parts.append(f"trigger {'on' if param_level(self._param_values[name]) > 0 else 'off'}")
+            elif self._avatar_params is not None and name not in self._avatar_params:
+                parts.append("trigger not on this avatar")
+                state = "warn"
+        return " · ".join(parts), state
+
+    def _roll(self, pid: str, source: str) -> None:
+        """A random card: a height between its two, then what it is set to
+        do with it — the same paths as a saved height's click."""
+        p = self._size_param(pid)
+        if p is None or p["kind"] != KIND_RANDOM:
+            return
+        top = max_height_cm(self.unlocked)
+        cm = min(top, random_height(p["min"], min(p["max"], top), self._random.random()))
+        self._last_roll[pid] = cm
+        self.window.pace("params", self._show_param_live)
+        go = p["go"]
+        if go == "instant":
+            self._set_absolute(cm, f"random height, {source}")
+            return
+        if self.transition is not None:
+            if go == "select":
+                self._status(f"Rolled {format_height(cm)} ({source}) — the target stays "
+                             "put while the transition runs.", warn=True)
+                return
+            self._stop_transition(stopped_by=f"random height, {source}")
+        self.window.set_target(cm)
+        if go == "timed":
+            self._status(f"Rolled {format_height(cm)} ({source}).")
+            self._on_play()
+        else:
+            self._status(f"Rolled {format_height(cm)} ({source}) — it is the target now.")
+
+    # --- the window's cards -------------------------------------------------
+
+    def _on_size_params_toggled(self, on: bool) -> None:
+        self.size_params_on = bool(on)
+        self.config.update_config({"size_params_on": self.size_params_on})
+        self._sync_param_timer()
+        self._show_size_params()
+        self._status("Size parameters on." if on else "Size parameters paused.")
+
+    def _on_size_param_added(self, kind: str, name: str, ptype: str, index: int = -1) -> None:
+        if len(self.size_params) >= SIZE_PARAMS_MAX:
+            self._status(f"That's the most cards there can be ({SIZE_PARAMS_MAX}).", warn=True)
+            return
+        if kind == KIND_RANDOM and not name:
+            name, ptype = CONTACT_RANDOM, "Bool"     # the contact example's
+        entry = clean_size_param({"kind": kind, "param": name, "type": ptype,
+                                  "speed": DEFAULT_SIZE_PARAM_SPEED})
+        entry["id"] = pid = f"sp{next(self._param_ids)}"
+        if 0 <= index < len(self.size_params):
+            self.size_params.insert(index, entry)
+        else:
+            self.size_params.append(entry)
+        self._size_params_changed(entry, param_changed=bool(name))
+        if not name and entry["kind"] == KIND_PARAM:
+            self.window.open_picker(pid)          # which parameter? the list beside it
+
+    def _on_size_param_moved(self, pid: str, index: int) -> None:
+        p = self._size_param(pid)
+        if p is None:
+            return
+        old = self.size_params.index(p)
+        self.size_params.remove(p)
+        index = max(0, min(int(index), len(self.size_params)))
+        self.size_params.insert(index, p)
+        if index != old:
+            self._save_size_params()
+        self._show_size_params()
+
+    def _on_size_param_changed(self, pid: str, changes) -> None:
+        p = self._size_param(pid)
+        if p is None or not isinstance(changes, dict):
+            return
+        old_param = p["param"]
+        if "param" in changes:
+            clean = clean_size_param({**p, "param": changes.get("param"),
+                                      "type": changes.get("type", "")})
+            if clean is not None:
+                p["param"], p["type"] = clean["param"], clean["type"]
+                if p["kind"] == KIND_RANDOM:
+                    self._param_values.pop(p["param"], None)   # its next change counts
+        if p["kind"] == KIND_PARAM and changes.get("dir") in (PARAM_GROW, PARAM_SHRINK):
+            p["dir"] = changes["dir"]
+        if p["kind"] == KIND_PARAM and changes.get("unit") in SPEED_UNITS:
+            p["unit"] = changes["unit"]
+        if p["kind"] == KIND_PARAM:
+            if is_number(changes.get("speed")):
+                p["speed"] = float(changes["speed"])
+            p["speed"] = min(speed_max(p["unit"]), max(HOTKEY_SPEED_MIN, p["speed"]))
+        if isinstance(changes.get("on"), bool):
+            p["on"] = changes["on"]
+        if p["kind"] == KIND_RANDOM:
+            lo = changes.get("min", p["min"])
+            hi = changes.get("max", p["max"])
+            go = changes.get("go", p["go"])
+            clean = clean_size_param({**p, "min": lo, "max": hi, "go": go})
+            if clean is not None:
+                p["min"], p["max"], p["go"] = clean["min"], clean["max"], clean["go"]
+        self._size_params_changed(p, param_changed=p["param"] != old_param,
+                                  rebuild="param" in changes)
+
+    def _on_size_param_removed(self, pid: str) -> None:
+        p = self._size_param(pid)
+        if p is None:
+            return
+        self.size_params.remove(p)
+        self._size_params_changed(p, param_changed=True)
+        if p["param"]:
+            self._status(f"Removed the size parameter “{p['param']}”.")
+
+    def _size_params_changed(self, p: Dict[str, Any], param_changed: bool,
+                             rebuild: bool = True) -> None:
+        self._save_size_params()
+        if param_changed:
+            self._watch_params()
+            if p["param"] and p["param"] not in self._param_values:
+                self._read_params()               # its value now, not at its next change
+        if rebuild:
+            self._show_size_params()
+        else:
+            self._show_param_live()
+        self._sync_param_timer()
+
+    # --- the avatar's parameters (the picker; the cards' first values) -------
+
+    def _on_picker_shown(self, on: bool) -> None:
+        if on:
+            self._read_params(force=True)
+            self._picker_timer.start()
+        else:
+            self._picker_timer.stop()
+
+    def _read_params_soon(self, delay_ms: int) -> None:
+        round_ = self._params_round
+        QTimer.singleShot(delay_ms, lambda: round_ == self._params_round and (
+            self.size_params or self.vr_reset or self.window.picker_open)
+            and self._read_params())
+
+    def _read_params(self, force: bool = False) -> None:
+        """Ask VRChat's OSCQuery tree for the avatar's parameters (one read
+        at a time; while the window is minimized only when it matters)."""
+        if not self.connected:
+            if self.window.picker_open:
+                self.window.set_param_list({}, "Waiting for VRChat — the list comes from the "
+                                               "avatar you're wearing.")
+            return
+        if self._params_reading:
+            return
+        if (not force and self.window.pace_interval_ms() is None
+                and all(p["param"] in self._param_values for p in self.size_params)):
+            return
+        self._params_reading = True
+        round_ = self._params_round
+
+        def worker() -> None:
+            self._sig_params_read.emit(round_, self.osc.read_parameters())
+        threading.Thread(target=worker, name="read-params", daemon=True).start()
+
+    def _on_params_read(self, round_: int, found) -> None:
+        if round_ != self._params_round:
+            return                   # an avatar change since: the old avatar's
+        self._params_reading = False
+        if found is None:
+            if self.window.picker_open:
+                self.window.set_param_list(None, "VRChat didn't answer — ⟳ to try again.")
+            return
+        self._avatar_params = {name: kind for name, (kind, _v) in found.items()}
+        for name in self._watched_names():
+            if name in found and name not in self._param_values and found[name][1] is not None:
+                self._param_values[name] = found[name][1]    # a live value is newer: kept
+        typed = False
+        for p in self.size_params:
+            name = p["param"]
+            if name in found:
+                kind, value = found[name]
+                if name not in self._param_values and value is not None:
+                    self._param_values[name] = value      # a live value is newer: kept
+                if p["type"] != kind and kind in PARAM_TYPES:
+                    p["type"], typed = kind, True
+        if typed:
+            self._save_size_params()
+            self._show_size_params()
+        self._sync_param_timer()
+        self.window.pace("params", self._show_param_live)
+        if self.window.picker_open:
+            self.window.set_param_list(
+                found, f"{len(found)} parameters on this avatar · values update every second"
+                if found else "This avatar has no parameters VRChat lists.")
+
+    # ------------------------------------------------------------------
     # The in-VRChat menu
     # ------------------------------------------------------------------
 
     def _on_menu(self, name: str, value, seen_at: float) -> None:
         """A HeightShift menu parameter from VRChat. Whatever it does goes
         through the same paths as the window's buttons."""
-        if self._menu_present is not True:
+        if name == MENU_PAUSE:
+            # a prefab's switch for the size parameters (not the menu's own)
+            paused = param_level(value) > 0
+            if paused != self._vrchat_pause:
+                self._vrchat_pause = paused
+                self._sync_param_timer()
+                self._show_size_params()
+                self._status("Size parameters paused from VRChat." if paused
+                             else "Size parameters back on from VRChat.")
+            return
+        if self._menu_present is not True and name in MENU_PARAMS:
             self._menu_present = True            # it arrived, so the avatar has it
             self._show_menu_status()
         event = self.menu.offer(name, value, seen_at)
@@ -1188,6 +1813,15 @@ class HeightShiftController(QObject):
                 self._on_pause()
             else:
                 self._on_play()
+        elif kind == "reset":
+            self.reset_to_default("VRChat menu")
+        elif kind == "roll":
+            card = next((p for p in self.size_params if p["kind"] == KIND_RANDOM), None)
+            if card is None:
+                self._status("VRChat menu: Random height — add a 🎲 Random card in the app "
+                             "first (Size parameters).", warn=True)
+            else:
+                self._roll(card["id"], "VRChat menu")
         elif kind == "stop":
             if self.transition is not None:
                 self._stop_transition(stopped_by="Stop")
@@ -1370,6 +2004,7 @@ class HeightShiftController(QObject):
         interval = max(1, round(1000 / self.send_rate))
         self._tick_timer.setInterval(interval)       # a timed transition's sends
         self._hotkey_timer.setInterval(interval)     # a held key's (hotkey or menu)
+        self._param_timer.setInterval(interval)      # the size parameters'
 
     def _on_send_rate(self, rate: int) -> None:
         if rate not in SEND_RATES:
@@ -1544,6 +2179,11 @@ class HeightShiftController(QObject):
                                      f"({how})", "run")
         elif self._burst_left > 0 or self._verify_timer.isActive():
             self.window.set_activity("keeping height", "run")
+        elif self._param_level is not None:
+            way = self._param_direction(self._param_terms())
+            self.window.set_activity(
+                f"{'growing' if way > 0 else 'shrinking' if way < 0 else 'held'} (parameter)",
+                "run")
         elif t is not None and t.playing:
             self.window.set_activity("transition running", "run")
         elif t is not None:

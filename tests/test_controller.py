@@ -45,6 +45,17 @@ class FakeOSC:
         self.ports = {"local_listen_port": 50000, "udp_send_port": 9000}
         self.on_connected = self.on_disconnected = None
         self.on_height_received = self.on_avatar_change = None
+        self.on_parameter = None
+        self.watched = frozenset()         # watch_parameters
+        self.params = None                 # what read_parameters answers: {name: (type, value)}
+        self.params_reads = 0
+
+    def watch_parameters(self, names):
+        self.watched = frozenset(n for n in names if n)
+
+    def read_parameters(self):
+        self.params_reads += 1
+        return None if self.params is None else dict(self.params)
 
     def start(self):
         pass
@@ -98,8 +109,15 @@ class FakeKeys:
         self.available = True
         self.down = set()
         self.front = "VRChat.exe"
+        self.taps = set()          # pressed and let go since the last poll
 
     def is_held(self, hotkey):
+        return hotkey in self.down
+
+    def pressed(self, hotkey):
+        if hotkey in self.taps:
+            self.taps.discard(hotkey)
+            return True
         return hotkey in self.down
 
     def vrchat_in_front(self):
@@ -642,14 +660,14 @@ class ControllerTest(unittest.TestCase):
         self.assertTrue(self.window.profile_load_btns[2].isChecked())   # it is the target
 
     # --- what a click does: saved heights and the scale --------------------
-    def test_six_saved_heights(self):
+    def test_nine_saved_heights(self):
         self.make()
-        self.assertEqual(sorted(self.window.profile_load_btns), [1, 2, 3, 4, 5, 6])
-        self.assertEqual(sorted(self.window.profile_save_btns), [1, 2, 3, 4, 5, 6])
+        self.assertEqual(sorted(self.window.profile_load_btns), list(range(1, 10)))
+        self.assertEqual(sorted(self.window.profile_save_btns), list(range(1, 10)))
         self.connect()
         self.report(0.03)
-        self.window.profile_save_btns[6].click()
-        self.assertEqual(self.c.profiles["profile6"], 3.0)
+        self.window.profile_save_btns[9].click()
+        self.assertEqual(self.c.profiles["profile9"], 3.0)
 
     def test_a_select_slot_only_picks_the_target(self):
         self.make(profiles={"profile1": 140.0})

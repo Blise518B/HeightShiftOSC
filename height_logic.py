@@ -25,13 +25,24 @@ from collections import deque
 from typing import Deque, Dict, Optional, Tuple
 
 from constants import (
+    CLICK_ACTIONS,
+    DEFAULT_RANDOM_GO,
+    DEFAULT_RANDOM_MAX_CM,
+    DEFAULT_RANDOM_MIN_CM,
+    DEFAULT_SIZE_PARAM_SPEED,
+    DEFAULT_SIZE_PARAM_UNIT,
     ECHO_HOLD_S,
+    HOTKEY_SPEED_MAX_CM,
+    HOTKEY_SPEED_MAX_PCT,
+    HOTKEY_SPEED_MIN,
     MAX_HEIGHT_CM,
     MENU_AVATAR_GUARD_S,
     MENU_DEBOUNCE_S,
     MENU_GROW,
     MENU_LOAD,
     MENU_PLAY,
+    MENU_RESET,
+    MENU_ROLL,
     MENU_SAVE,
     MENU_SHRINK,
     MENU_STOP,
@@ -389,6 +400,12 @@ SPEED_CM = "cm"         # the same number of cm every second
 SPEED_UNITS = (SPEED_PERCENT, SPEED_CM)
 
 
+def speed_text(speed: float, unit: str, direction: int = 0) -> str:
+    """5 cm/s, 2.5 %/s; with a direction, signed: +5 cm/s, −2.5 %/s."""
+    sign = "" if not direction else ("+" if direction > 0 else "−")
+    return f"{sign}{speed:.3g} {'cm' if unit == SPEED_CM else '%'}/s"
+
+
 def hold_height(base_cm: float, seconds: float, speed: float, unit: str,
                 direction: int) -> float:
     """The height after holding the grow (+1) or shrink (-1) key for
@@ -403,6 +420,161 @@ def hold_height(base_cm: float, seconds: float, speed: float, unit: str,
         return base_cm + direction * speed * t
     factor = (1.0 + speed / 100.0) ** t
     return base_cm * factor if direction > 0 else base_cm / factor
+
+
+# ----------------------------------------------------------------------
+# Size parameters: avatar parameters that grow or shrink you
+# ----------------------------------------------------------------------
+
+PARAM_GROW, PARAM_SHRINK = "grow", "shrink"
+KIND_PARAM, KIND_RANDOM = "param", "random"     # a parameter card, a random card
+PARAM_TYPES = ("Bool", "Int", "Float")
+_OSC_TYPES = {"T": "Bool", "F": "Bool", "i": "Int", "f": "Float"}
+
+
+def param_type(tag) -> Optional[str]:
+    """An OSCQuery TYPE ("T", "F", "i", "f") as the picker shows it, or None
+    for a kind a size parameter can't use (a string, a vector)."""
+    return _OSC_TYPES.get(tag[:1]) if isinstance(tag, str) and len(tag) == 1 else None
+
+
+def param_level(value) -> float:
+    """How hard an avatar parameter pushes, 0..1: a Bool on = 1, an Int not
+    0 = 1, a Float its own value (VRChat's run -1..1: below 0 is off)."""
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, int):
+        return 1.0 if value != 0 else 0.0
+    if is_number(value):
+        return min(1.0, max(0.0, float(value)))
+    return 0.0
+
+
+def drive_height(cm: float, seconds: float, terms) -> float:
+    """The height after `seconds` of size parameters pushing from `cm`.
+
+    `terms`: (direction +1/-1, speed, unit, level 0..1) per parameter. A
+    level is that share of the speed: 0.5 of 10 cm/s is 5 cm/s, 0.5 of
+    10 %/s is 5 %/s. Percent terms multiply (shrinking divides, as
+    hold_height), cm terms add, so growing and shrinking at the same speed
+    hold the height still. Not bounded here: the caller keeps it inside the
+    limits."""
+    t = max(0.0, float(seconds))
+    log_factor = 0.0
+    add = 0.0
+    for direction, speed, unit, level in terms:
+        rate = float(speed) * max(0.0, min(1.0, float(level)))
+        if rate <= 0.0:
+            continue
+        if unit == SPEED_CM:
+            add += direction * rate * t
+        else:
+            log_factor += direction * math.log1p(rate / 100.0) * t
+    return cm * math.exp(log_factor) + add
+
+
+def clean_size_param(raw) -> Optional[Dict[str, object]]:
+    """A size parameter from the config, checked: None when it isn't one.
+    An empty `param` is a card still waiting for its parameter."""
+    if not isinstance(raw, dict):
+        return None
+    param = raw.get("param", "")
+    if not isinstance(param, str):
+        return None
+    param = param.strip()
+    if param.startswith("/avatar/parameters/"):
+        param = param[len("/avatar/parameters/"):]
+    unit = raw.get("unit") if raw.get("unit") in SPEED_UNITS else DEFAULT_SIZE_PARAM_UNIT
+    top = speed_max(unit)
+    speed = raw.get("speed", DEFAULT_SIZE_PARAM_SPEED)
+    if not is_number(speed) or not HOTKEY_SPEED_MIN <= speed <= top:
+        speed = min(top, DEFAULT_SIZE_PARAM_SPEED)
+    ptype = raw.get("type") if raw.get("type") in PARAM_TYPES else ""
+    on = raw.get("on") if isinstance(raw.get("on"), bool) else True
+    if raw.get("kind") == KIND_RANDOM:
+        lo, hi = raw.get("min"), raw.get("max")
+        lo = float(lo) if is_number(lo) and lo >= MIN_HEIGHT_CM else DEFAULT_RANDOM_MIN_CM
+        hi = float(hi) if is_number(hi) and hi >= MIN_HEIGHT_CM else DEFAULT_RANDOM_MAX_CM
+        lo, hi = min(lo, UNLOCKED_MAX_HEIGHT_CM), min(hi, UNLOCKED_MAX_HEIGHT_CM)
+        go = raw.get("go") if raw.get("go") in CLICK_ACTIONS else DEFAULT_RANDOM_GO
+        return {"kind": KIND_RANDOM, "param": param, "type": ptype,
+                "min": min(lo, hi), "max": max(lo, hi), "go": go, "on": on}
+    return {
+        "kind": KIND_PARAM,
+        "param": param,
+        "type": ptype,
+        "dir": raw.get("dir") if raw.get("dir") in (PARAM_GROW, PARAM_SHRINK) else PARAM_GROW,
+        "speed": float(speed),
+        "unit": unit,
+        "on": on,
+    }
+
+
+def random_height(lo_cm: float, hi_cm: float, rnd: float) -> float:
+    """A height between `lo_cm` and `hi_cm` for `rnd` in [0, 1): even on the
+    height scale (log), so 1–10 m is as likely as 10–100 m, like the scale
+    beside the figure. Whole centimetres (0.1 cm below 10 cm)."""
+    lo, hi = sorted((max(float(MIN_HEIGHT_CM), lo_cm), max(float(MIN_HEIGHT_CM), hi_cm)))
+    cm = math.exp(math.log(lo) + (math.log(hi) - math.log(lo)) * min(1.0, max(0.0, rnd)))
+    cm = round(cm, 1) if cm < 10 else float(round(cm))
+    return min(hi, max(lo, cm))
+
+
+def gestures_match(left, right, want_left: int, want_right: int) -> bool:
+    """Each hand shows its gesture (VRChat's GestureLeft / GestureRight:
+    0 neutral, 1 fist, … 7 thumbs up)."""
+    return (is_number(left) and int(left) == want_left
+            and is_number(right) and int(right) == want_right)
+
+
+def vr_reset_gesture(left, right, grounded_before, grounded_now,
+                     want_left: int = 1, want_right: int = 1) -> bool:
+    """The two gestures shown as the feet leave the ground (Grounded: on ->
+    off): the jump of "both fists + jump", back to the avatar's own height."""
+    return (gestures_match(left, right, want_left, want_right)
+            and grounded_before is not None
+            and param_level(grounded_before) > 0 and param_level(grounded_now) <= 0)
+
+
+def param_rose(old, new) -> bool:
+    """A parameter turned on: from a known off to on (a contact touched, a
+    button pressed) — not a first value after an avatar load."""
+    return old is not None and param_level(old) <= 0.0 < param_level(new)
+
+
+def speed_max(unit: str) -> float:
+    """The fastest a hold or a size parameter may go, in `unit`."""
+    return HOTKEY_SPEED_MAX_CM if unit == SPEED_CM else HOTKEY_SPEED_MAX_PCT
+
+
+def flatten_parameters(node, out: Optional[Dict[str, Tuple[str, object]]] = None
+                       ) -> Dict[str, Tuple[str, object]]:
+    """VRChat's OSCQuery tree under /avatar/parameters -> {name: (type,
+    value)}, the names as the avatar has them (`/avatar/parameters/`
+    dropped; a name with a `/` in it is a node inside a node). Kinds a size
+    parameter can't use are left out."""
+    if out is None:
+        out = {}
+    if not isinstance(node, dict):
+        return out
+    contents = node.get("CONTENTS")
+    if isinstance(contents, dict) and contents:
+        for child in contents.values():
+            flatten_parameters(child, out)
+        return out
+    path = node.get("FULL_PATH")
+    kind = param_type(node.get("TYPE"))
+    if not isinstance(path, str) or kind is None:
+        return out
+    prefix = "/avatar/parameters/"
+    if not path.startswith(prefix) or len(path) == len(prefix):
+        return out
+    value = node.get("VALUE")
+    value = value[0] if isinstance(value, list) and value else None
+    if kind == "Bool" and not isinstance(value, bool):
+        value = node.get("TYPE") == "T" if value is None else bool(value)
+    out[path[len(prefix):]] = (kind, value)
+    return out
 
 
 # ----------------------------------------------------------------------
@@ -481,7 +653,8 @@ def scale_decades(lo: float, hi: float):
 # ----------------------------------------------------------------------
 
 MENU_KINDS = {MENU_GROW: "grow", MENU_SHRINK: "shrink", MENU_PLAY: "play",
-              MENU_STOP: "stop", MENU_LOAD: "load", MENU_SAVE: "save"}
+              MENU_STOP: "stop", MENU_LOAD: "load", MENU_SAVE: "save",
+              MENU_RESET: "reset", MENU_ROLL: "roll"}
 MENU_HELD = ("grow", "shrink")
 
 
@@ -504,8 +677,10 @@ class MenuInput:
     it back to 0 when let go, so:
       * Grow and Shrink are held: `held` says which are down right now, and
         offer() reports each going down or up ("grow", 1) / ("grow", 0).
-      * Play, Stop, Load N and Save N act once, when pressed: ("play", 0),
-        ("stop", 0), ("load", N), ("save", N).
+      * Play, Stop, Own height, Random height, Load N and Save N act once,
+        when pressed: ("play", 0), ("stop", 0), ("reset", 0), ("roll", 0),
+        ("load", N), ("save", N).
+    (Pause cards is a Toggle: the controller reads its value, not presses.)
 
     Two kinds of report are not presses and are dropped:
       * anything within `guard_s` of an avatar change: VRChat reports every

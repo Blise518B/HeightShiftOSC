@@ -24,7 +24,9 @@ from . import theme_tokens as T
 _NEON_SECTION_BAR = "#1c8a3d"
 # Neon's frame tone per hue: the border column of VRCDollySync's
 # _NEON_CAT_BARS (the Neon source design-518.md names), copied, not mixed.
-_NEON_FRAMES = {"red": "#b04552", "blue": "#3b6ea3"}
+_NEON_FRAMES = {"red": "#b04552", "blue": "#3b6ea3", "cyan": "#2e93a3"}
+# ... and its filled bar for the Size parameters card (cyan)
+_NEON_CYAN_BAR = "#15808f"
 
 TEXT_SCALES = (0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0)
 
@@ -120,7 +122,7 @@ QLabel#NewsHead { color: %(accent)s; font-size: 16px; font-weight: 700; }
 QLabel#NewsTitle { color: %(txt)s; font-size: 13px; font-weight: 700; }
 QLabel#NewsText { color: %(muted)s; font-size: 12px; }
 QFrame#SpotBox { border: 2px solid transparent; border-radius: 8px; }
-QFrame#SpotBox[spot="true"], QFrame#Group[spot="true"] { border: 2px solid %(txt)s; }
+QFrame#SpotBox[spot="true"], QFrame#Group[spot="true"], QFrame#Card[spot="true"] { border: 2px solid %(txt)s; }
 QPushButton#ModeCurrent[spot="true"], QPushButton#OwnHeight[spot="true"] { border: 2px solid %(txt)s; }
 QPushButton#GoInstant { background: %(instant)s; border-color: %(instant)s; color: %(ink)s; font-weight: 650; }
 QPushButton#GoInstant:hover { background: %(instant)s; border-color: %(txt)s; color: %(ink)s; }
@@ -153,13 +155,16 @@ QPushButton#Icon { padding: 3px 9px; font-size: 15px; }
 QPushButton#Small { padding: 3px 12px; }
 QPushButton#Slot { font-family: "Cascadia Mono", Consolas, monospace; padding: 5px 8px; text-align: left;
                    min-height: 20px; max-height: 20px; }
-QPushButton#SlotSave { padding: 5px 7px; min-height: 20px; max-height: 20px; }
+QPushButton#SlotSave { padding: 5px 2px; min-height: 20px; max-height: 20px; }
 QPushButton#OwnHeight { padding: 6px 12px; }
 /* a saved height's ▾ (while Settings are open): joined to its right edge */
 QPushButton#Slot[joined="true"] { border-top-right-radius: 0px; border-bottom-right-radius: 0px; }
 QPushButton#SlotKind { padding: 5px 0px; min-height: 20px; max-height: 20px; min-width: 24px; max-width: 24px;
     border-left: none; border-top-left-radius: 0px; border-bottom-left-radius: 0px; color: %(muted)s; }
 QPushButton#SlotKind::menu-indicator { image: none; width: 0px; }
+/* a choice from a short list: its value and a ▾ in the text, the menu under it */
+QPushButton#Choice { text-align: left; padding: 5px 10px; }
+QPushButton#Choice::menu-indicator { image: none; width: 0px; }
 QPushButton#SlotKind[kind="instant"] { border-color: %(instant)s; color: %(instant)s; }
 QPushButton#SlotKind[kind="timed"] { border-color: %(timed)s; color: %(timed)s; }
 QPushButton#SlotKind:hover { background: %(hover)s; color: %(txt)s; }
@@ -196,6 +201,41 @@ QCheckBox::indicator:checked {
     width: 10px; height: 10px; padding: 3px; background-clip: content;
 }
 QCheckBox::indicator:hover { border-color: %(accent)s; }
+
+/* Size parameters (ui/size_cards.py): cyan, live input from the avatar */
+QFrame#Card[hue="params"] { border-color: %(params_line)s; }
+QFrame#Card[hue="params"] QLabel#SectionTitle { background: %(params_bar)s; color: %(params_bar_text)s; }
+QFrame#SizeCard { background: %(well)s; border: 1px solid %(params_mid)s; border-radius: %(r_btn)spx; }
+QFrame#SizeCard[picking="true"] { border: 2px solid %(params)s; }
+QFrame#SizeCard QAbstractSpinBox { border: 1px solid %(params_mid)s; }
+QFrame#SizeCard QAbstractSpinBox:focus { border: 1px solid %(params)s; }
+QLabel#CardGrip { color: %(dim)s; font-size: 16px; padding: 0px 2px; }
+QLabel#CardGrip:hover { color: %(params)s; }
+QLabel#CardTitle { color: %(txt)s; font-weight: 700; }
+QLabel#CardType { color: %(dim)s; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+QLabel#CardLive { color: %(muted)s; font-size: 12px; }
+QLabel#CardLive[state="run"] { color: %(run)s; }
+QLabel#CardLive[state="warn"] { color: %(warn)s; }
+QLabel#CardGhost { border: 2px dashed %(params_mid)s; border-radius: %(r_btn)spx; color: %(params)s; }
+QLabel#DragChip { background: %(card)s; border: 1px solid %(params)s; border-radius: 6px; padding: 4px 10px;
+    color: %(txt)s; font-family: "Cascadia Mono", Consolas, monospace; }
+QPushButton#CardToggle { padding: 3px 9px; }
+QPushButton#CardToggle[on="true"] { border-color: %(params_mid)s; color: %(params)s; }
+QPushButton#CardToggle[on="true"]:hover { background: %(params_tint)s; border-color: %(params)s; }
+QPushButton#CardToggle[on="false"] { background: %(amber_tint)s; border-color: %(amber_mid)s; color: %(amber)s; }
+QPushButton#CardToggle[on="false"]:hover { border-color: %(amber)s; }
+QPushButton#CardRemove { border-color: transparent; color: %(muted)s; padding: 3px 7px; }
+QPushButton#CardRemove:hover { border-color: %(line)s; color: %(txt)s; }
+QPushButton#ParamName { font-family: "Cascadia Mono", Consolas, monospace; text-align: left; padding: 4px 8px; }
+QPushButton#ParamName:hover { border-color: %(params)s; }
+QPushButton#ParamName[empty="true"] { color: %(params)s; border: 1px dashed %(params_mid)s; }
+QPushButton#Roll { padding: 4px 12px; border-color: %(params_mid)s; color: %(params)s; font-weight: 650; }
+QPushButton#Roll:hover { background: %(params_tint)s; border-color: %(params)s; }
+QPushButton#Seg[kind="grow"]:checked { background: %(plus_tint)s; border-color: %(plus)s; color: %(plus)s; }
+QPushButton#Seg[kind="shrink"]:checked { background: %(minus_tint)s; border-color: %(minus)s; color: %(minus)s; }
+QFrame#PickerPanel { background: %(panel)s; border: none; border-left: 1px solid %(line)s; }
+QLabel#PickerTitle { color: %(params)s; font-size: 14px; font-weight: 700; }
+QLabel#PickerFor { color: %(txt)s; font-size: 12px; }
 
 QSlider { background: transparent; border: none; }
 QSlider::groove:horizontal {
@@ -252,6 +292,15 @@ def colors() -> Dict[str, str]:
         v["timed_bar"], v["timed_bar_text"], v["timed_line"] = vib, v["ink"], vib
     else:
         v["timed_bar"], v["timed_bar_text"], v["timed_line"] = tint, vib, mid
+    # Size parameters: cyan (design-518.md: running, live) — the card, its
+    # cards, the parameter list. Neon fills the bar with its own cyan bar tone.
+    vib, mid, tint = T.PALETTE["cyan"]
+    v["params"], v["params_mid"], v["params_tint"] = vib, mid, tint
+    if neon:
+        v["params_bar"], v["params_bar_text"] = _NEON_CYAN_BAR, v["txt"]
+        v["params_line"] = _NEON_FRAMES["cyan"]
+    else:
+        v["params_bar"], v["params_bar_text"], v["params_line"] = tint, vib, mid
     # the updater's orange (design-518.md: updaters, nags, pending installs)
     v["upd"], v["upd_mid"], v["upd_tint"] = T.PALETTE["orange"]
     # the size comparison's target shadow (ui/figure.py), for its colour key

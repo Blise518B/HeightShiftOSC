@@ -12,6 +12,8 @@ Layout (design-518.md §0):
                                                      target, load as target,
                                                      save to, Go instant / timed
              Timed transition: over · curve · status | graph
+             Size parameters: cards (avatar parameters that grow / shrink,
+             random heights), sorted by dragging   |  the avatar's parameters
                                                        |  settings side panel
     status   what just happened · (activity chip) · HeightShift v2.0 · made by Blise518B
 """
@@ -42,6 +44,10 @@ from PySide6.QtWidgets import (
 )
 
 from constants import (
+    GESTURES,
+    VR_RESET_HOLD_S,
+    VR_THEN_HOLD,
+    VR_THEN_JUMP,
     APP_NAME,
     AUTHOR,
     AUTHOR_URL,
@@ -66,6 +72,8 @@ from height_logic import (
 from . import theme_tokens as T
 from .figure import FIT_MIN, SizeComparison, ratio_text
 from .graph import GRAPH_HEIGHT, TransitionGraph
+from .size_cards import (CARD_W, KIND_RANDOM, PICKER_W, CardBoard, ParamCard, ParamPicker,
+                         RandomCard)
 from .theme import TEXT_SCALES, colors, resource_path, text_scale
 from .update_dialog import UpdateDialog
 from .whats_new import WhatsNewDialog
@@ -100,6 +108,8 @@ PLACES = {
     "slot_actions": (False, "slots_box"),
     "scale_mode": (False, "mode_switch"),
     "own_height": (False, "reset_btn"),
+    "size_params": (False, "size_card"),
+    "vr_gesture": (True, "hotkeys_frame"),
     "settings_height": (True, "height_group"),
     "updates": (True, "updates_group"),
     "menu_guide": (True, "menu_group"),
@@ -116,6 +126,10 @@ MENU_GUIDE = (
     (1, ("play_pause",), "Play / Pause", "Go timed to the target set here; again pauses, "
                                          "again resumes"),
     (1, ("stop",), "Stop", "stops the timed transition where it is"),
+    (1, ("own_height",), "Own height", "back to the avatar's own height at once"),
+    (1, ("roll",), "Random height", "the first 🎲 card in Size parameters rolls"),
+    (1, ("pause_cards",), "Pause cards", "a toggle: every size parameter card waits "
+                                         "while it is on"),
     (1, ("saved",), "Saved heights", "a submenu:"),
     (2, ("load1", "load2", "load3", "load4"), "Load 1 – 4",
      "sets your height to saved height 1 – 4 at once"),
@@ -158,6 +172,7 @@ class HeightShiftWindow(QMainWindow):
     hotkey_captured = Signal(str, int, int)   # "grow" | "shrink", vk, mods
     hotkey_speed_changed = Signal(float, str) # speed, "pct" | "cm"
     hotkeys_vrchat_only_toggled = Signal(bool)
+    vr_reset_changed = Signal(object)         # the VR gesture: {on, left, right, then}
     # --- what a click does ---
     slot_action_changed = Signal(int, str)    # saved height N: "select" | "instant" | "timed"
     scale_mode_changed = Signal(str)          # a click on the scale: the same three
@@ -167,6 +182,15 @@ class HeightShiftWindow(QMainWindow):
     update_install_clicked = Signal()         # the update window's Install now
     update_skipped = Signal(str)              # "don't remind me about <tag>"
     whats_new_clicked = Signal()              # Settings → Updates → What's new
+    # --- size parameters (ui/size_cards.py) ---
+    size_params_toggled = Signal(bool)        # all of them on / paused
+    size_param_added = Signal(str, str, str, int)  # kind, parameter, its type, place (-1: last)
+    size_param_changed = Signal(str, object)  # card id, {field: value}
+    size_param_removed = Signal(str)
+    size_param_moved = Signal(str, int)       # card id, its new place
+    size_param_roll = Signal(str)             # a random card's 🎲
+    param_picker_shown = Signal(bool)         # the avatar's parameter list opened / closed
+    param_picker_refresh = Signal()
 
     SETTINGS_WIDTH = 360
 
@@ -192,6 +216,8 @@ class HeightShiftWindow(QMainWindow):
         self.profile_save_btns: Dict[int, QPushButton] = {}
         self.profile_load_btns: Dict[int, QPushButton] = {}
         self.capturing_key = False      # a hotkey button waits for a key press
+        self._picking: str = ""         # the card a click in the parameter list goes to
+        self._top_cm = float(MAX_HEIGHT_CM)
 
         # pace(): what a stream changes, drawn at the window's own pace
         self._paced: Dict[str, object] = {}          # key -> the newest update waiting
@@ -246,10 +272,19 @@ class HeightShiftWindow(QMainWindow):
         self.top_row.addWidget(self.height_panel, 0)
         work_lay.addLayout(self.top_row)
         work_lay.addWidget(self._build_transition_card())
+        work_lay.addWidget(self._build_size_card())
         work_lay.addStretch(1)
         self.work_scroll.setWidget(self.work)
         self.work_scroll.installEventFilter(self)      # its width decides the top row
         middle.addWidget(self.work_scroll, 1)
+
+        # the avatar's parameters, opened from a card: between the work and Settings
+        self.picker = ParamPicker()
+        self.picker.picked.connect(self._on_param_picked)
+        self.picker.closed.connect(lambda: self.close_picker())
+        self.picker.refresh.connect(self.param_picker_refresh.emit)
+        self.picker.hide()
+        middle.addWidget(self.picker)
 
         self.settings_panel = self._build_settings_panel()
         middle.addWidget(self.settings_panel)
@@ -275,6 +310,8 @@ class HeightShiftWindow(QMainWindow):
             room = screen.availableGeometry().width() - 16
             if not self.settings_panel.isHidden():
                 room -= self.settings_panel.width()
+            if not self.picker.isHidden():
+                room -= self.picker.width()
             need = min(need, max(240, room))
         self.work_scroll.setMinimumWidth(need)
         self._arrange_top_row()
@@ -569,13 +606,16 @@ class HeightShiftWindow(QMainWindow):
             cell.setLayout(cell_lay)
             cell_lay.addWidget(pick, 1)
             cell_lay.addWidget(kind)
-            picks.addWidget(cell, (i - 1) // 3, (i - 1) % 3)     # three across, two rows
+            picks.addWidget(cell, (i - 1) // 3, (i - 1) % 3)     # three across, three rows
         box_lay.addLayout(picks)
         lay.addWidget(label("SAVE CURRENT HEIGHT TO", "Micro"))
-        saves = hbox(spacing=6)
+        saves = hbox(spacing=4)
         for i in range(1, SAVED_SLOTS + 1):
             save = QPushButton(f" {i}")
             save.setObjectName("SlotSave")
+            # nine in a row: they share the panel's width, never widen it
+            save.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            save.setMinimumWidth(30)
             save.clicked.connect(lambda _c=False, n=i: self.profile_save.emit(n))
             self.profile_save_btns[i] = save
             saves.addWidget(save, 1)
@@ -658,6 +698,52 @@ class HeightShiftWindow(QMainWindow):
         self.graph.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         top.addWidget(self.graph, 1)
         self.set_transition_state("idle", False, "")
+        return frame
+
+    def _build_size_card(self) -> QFrame:
+        """Avatar parameters that grow or shrink you, and random heights:
+        cards, each with its own ⏸ / ▶, and one switch for all of them."""
+        bar = QWidget()
+        bar_lay = hbox(spacing=6)
+        bar.setLayout(bar_lay)
+        add = QPushButton("+  Parameter")
+        add.setToolTip("A card for an avatar parameter that grows or shrinks you — "
+                       "picked from the avatar's list")
+        add.clicked.connect(lambda: self.size_param_added.emit("param", "", "", -1))
+        bar_lay.addWidget(add)
+        rnd = QPushButton("+  🎲 Random")
+        rnd.setToolTip("A card that picks a random height between two — on its 🎲, or "
+                       "when a parameter turns on")
+        rnd.clicked.connect(lambda: self.size_param_added.emit(KIND_RANDOM, "", "", -1))
+        bar_lay.addWidget(rnd)
+        self.size_all_btn = QPushButton()
+        self.size_all_btn.setObjectName("CardToggle")
+        self.size_all_btn.setCheckable(True)
+        self.size_all_btn.clicked.connect(self._on_size_all)
+        bar_lay.addWidget(self.size_all_btn)
+        frame, lay = card("Size parameters", trailing=bar)
+        frame.setProperty("hue", "params")     # cyan: live input from the avatar
+        self.size_card = frame
+        self.size_note = label("", "TransitionStatus", wrap=True)
+        self.size_note.setMinimumWidth(1)
+        self.size_note.hide()
+        lay.addWidget(self.size_note)
+        self.size_empty = hint(
+            "Let your avatar change your size: a contact, a toggle or a radial that grows "
+            "or shrinks you while it's on. A Bool works at the card's full speed, a Float "
+            "(0–1) at that share of it. Or roll a random height. + Parameter opens the "
+            "avatar's list beside the window.")
+        lay.addWidget(self.size_empty)
+        self.size_board = CardBoard()
+        self.size_board.moved.connect(self.size_param_moved.emit)
+        self.size_board.param_dropped.connect(
+            lambda name, kind, at: self.size_param_added.emit("param", name, kind, at))
+        lay.addWidget(self.size_board)
+        self.size_hint = hint("Holding a hotkey or the menu's Grow / Shrink goes first; a "
+                              "running timed transition stops when a card starts. Drag a "
+                              "card by its ⠿ to sort them.")
+        lay.addWidget(self.size_hint)
+        self._set_size_all(True, "")
         return frame
 
     def _build_settings_panel(self) -> QFrame:
@@ -792,6 +878,29 @@ class HeightShiftWindow(QMainWindow):
         d.addLayout(reset)
         d.addWidget(hint("Reset: one press puts you back at the avatar's own height — the "
                          "one it has before any scaling (VRChat tells it)."))
+        d.addSpacing(4)
+        d.addWidget(label("Saved heights", "FieldLabel"))
+        slot_keys = QGridLayout()
+        slot_keys.setHorizontalSpacing(6)
+        slot_keys.setVerticalSpacing(4)
+        self.slot_key_btns: Dict[int, KeyCaptureButton] = {}
+        for i in range(1, SAVED_SLOTS + 1):
+            btn = KeyCaptureButton()
+            btn.setToolTip(f"Click, then press the key for saved height {i}: a press does what "
+                           "a click on it does (select / go instant / go timed)")
+            btn.captured.connect(
+                lambda vk, mods, n=i: self.hotkey_captured.emit(f"slot{n}", vk, mods))
+            btn.capturing_changed.connect(self._on_capturing)
+            btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            btn.setMinimumWidth(40)
+            self.slot_key_btns[i] = btn
+            cell = hbox(spacing=4)
+            cell.addWidget(label(str(i), "FieldLabel"))
+            cell.addWidget(btn, 1)
+            slot_keys.addLayout(cell, (i - 1) // 3, (i - 1) % 3)
+        d.addLayout(slot_keys)
+        d.addWidget(hint("A press does what a click on that saved height does. Numpad keys "
+                         "need Num Lock on."))
         d.addWidget(hint("Click a key's button, then press the key you want — with Ctrl, "
                           "Shift or Alt if you like. Esc cancels."))
         d.addSpacing(4)
@@ -801,6 +910,51 @@ class HeightShiftWindow(QMainWindow):
         d.addWidget(hint("So the same key typed in Discord or a browser changes nothing."))
         hk.addWidget(self.hotkeys_details)
         g.addWidget(self.hotkeys_box)
+        # VRChat's own gesture parameters: works on any OS, with any controller
+        g.addSpacing(4)
+        self.vr_reset_cb = QCheckBox("VR gesture → own height")
+        self.vr_reset_cb.toggled.connect(lambda on: self.vr_reset_changed.emit({"on": on}))
+        g.addWidget(self.vr_reset_cb)
+        self.vr_reset_box = QWidget()
+        vr = QGridLayout()
+        vr.setContentsMargins(0, 0, 0, 0)
+        vr.setHorizontalSpacing(6)
+        vr.setVerticalSpacing(6)
+        self.vr_reset_box.setLayout(vr)
+        # each hand's gesture: a button with its ▾ menu (the saved heights' pattern)
+        self.vr_hand_btns: Dict[str, QPushButton] = {}
+        self.vr_hand_actions: Dict[str, Dict[int, object]] = {}
+        for row, (key, title) in enumerate((("left", "Left hand"), ("right", "Right hand"))):
+            btn = QPushButton()
+            btn.setObjectName("Choice")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(f"The gesture your {key} hand shows")
+            menu = QMenu(btn)
+            group_ = QActionGroup(menu)
+            self.vr_hand_actions[key] = {}
+            for code, name in GESTURES:
+                act = menu.addAction(name)
+                act.setCheckable(True)
+                group_.addAction(act)
+                act.triggered.connect(
+                    lambda _c=False, k=key, v=code: self.vr_reset_changed.emit({k: v}))
+                self.vr_hand_actions[key][code] = act
+            btn.setMenu(menu)
+            self.vr_hand_btns[key] = btn
+            vr.addWidget(label(title, "FieldLabel"), row, 0)
+            vr.addWidget(btn, row, 1)
+        self.vr_then_seg = Segmented([(VR_THEN_JUMP, "+ Jump"),
+                                      (VR_THEN_HOLD, f"Hold {VR_RESET_HOLD_S:g} s")])
+        self.vr_then_seg.set_tooltips({
+            VR_THEN_JUMP: "Show both gestures, then jump",
+            VR_THEN_HOLD: f"Show both gestures for {VR_RESET_HOLD_S:g} seconds"})
+        self.vr_then_seg.changed.connect(lambda k: self.vr_reset_changed.emit({"then": k}))
+        vr.addWidget(label("Then", "FieldLabel"), 2, 0)
+        vr.addWidget(self.vr_then_seg, 2, 1)
+        vr.setColumnStretch(1, 1)
+        g.addWidget(self.vr_reset_box)
+        self.vr_reset_hint = hint("")
+        g.addWidget(self.vr_reset_hint)
         lay.addWidget(self.hotkeys_frame)
 
         # --- Startup (cyan) -------------------------------------------
@@ -1249,6 +1403,129 @@ class HeightShiftWindow(QMainWindow):
         self.go_instant_btn.setEnabled(ok)
         self.go_instant_btn.setToolTip(tip)
 
+    # --- size parameters ------------------------------------------------
+
+    def set_size_params(self, entries, on: bool, note: str = "") -> None:
+        """The cards, rebuilt: one added, removed, sorted or given its
+        parameter. `note`: why they are paused from elsewhere."""
+        cards = []
+        for entry in entries:
+            if entry.get("kind") == KIND_RANDOM:
+                card_ = RandomCard(entry, self._top_cm)
+                card_.roll.connect(self.size_param_roll.emit)
+            else:
+                card_ = ParamCard(entry)
+            card_.changed.connect(self.size_param_changed.emit)
+            card_.removed.connect(self._on_card_removed)
+            card_.pick.connect(self.open_picker)
+            card_.set_picking(entry["id"] == self._picking)
+            cards.append(card_)
+        self.size_board.set_cards(cards)
+        self._size_card_widths()
+        self.size_empty.setVisible(not entries)
+        self.size_hint.setVisible(bool(entries))
+        self._set_size_all(on, note)
+        if self._picking and self._picking not in self.size_board.cards:
+            self._picking = ""
+        self._show_picking()
+
+    def _size_card_widths(self) -> None:
+        """All cards as wide as the widest needs (at least CARD_W, grown
+        with the text), so they line up in columns."""
+        cards = list(self.size_board.cards.values())
+        width = max([round(CARD_W * max(1.0, text_scale()))]
+                    + [c.minimumSizeHint().width() for c in cards])
+        for c in cards:
+            c.setFixedWidth(width)
+
+    def set_size_param_live(self, pid: str, text: str, state: str = "") -> None:
+        card_ = self.size_board.cards.get(pid)
+        if card_ is not None:
+            card_.set_live(text, state)
+
+    def _set_size_all(self, on: bool, note: str) -> None:
+        self.size_all_btn.setChecked(on)
+        self.size_all_btn.setText("‖  All on" if on else "▶  All paused")
+        self.size_all_btn.setProperty("on", "true" if on else "false")
+        self.size_all_btn.setToolTip("All cards work — click to pause them all" if on
+                                     else "All cards are paused (🎲 still rolls) — click to "
+                                          "switch them on")
+        restyle(self.size_all_btn)
+        self.size_note.setText(note)
+        self.size_note.setProperty("state", "warn" if note else "")
+        restyle(self.size_note)
+        self.size_note.setVisible(bool(note))
+
+    def _on_size_all(self, checked: bool) -> None:
+        self._set_size_all(checked, self.size_note.text())
+        self.size_params_toggled.emit(bool(checked))
+
+    def _on_card_removed(self, pid: str) -> None:
+        if pid == self._picking:
+            self._picking = ""
+        self.size_param_removed.emit(pid)
+
+    @property
+    def picker_open(self) -> bool:
+        return not self.picker.isHidden()
+
+    def open_picker(self, pid: str = "") -> None:
+        """The avatar's parameters beside the window; a click in the list
+        goes to card `pid` ('' : a new card)."""
+        self._picking = pid
+        self._show_picking()
+        if self.picker_open:
+            return
+        was = self.picker.isHidden()
+        self.picker.setFixedWidth(round(PICKER_W * max(1.0, text_scale())))
+        self.picker.show()
+        self._fit_work_column()
+        if was and self.isVisible():
+            # opening it is the person's own action: the window grows by it
+            self.resize(self.width() + self.picker.width(), self.height())
+            self.ensure_on_screen()
+        self.picker.filter.setFocus()
+        self.param_picker_shown.emit(True)
+
+    def close_picker(self) -> None:
+        self._picking = ""
+        self._show_picking()
+        if not self.picker_open:
+            return
+        self.picker.hide()
+        self._fit_work_column()
+        if self.isVisible():
+            self.resize(max(self.minimumSizeHint().width(), self.width() - self.picker.width()),
+                        self.height())
+        self.param_picker_shown.emit(False)
+
+    def _show_picking(self) -> None:
+        for pid, card_ in self.size_board.cards.items():
+            card_.set_picking(pid == self._picking)
+        card_ = self.size_board.cards.get(self._picking)
+        if card_ is None:
+            self.picker.set_for("Click a parameter for a new card.")
+        elif isinstance(card_, RandomCard):
+            self.picker.set_for("Click the parameter that rolls the highlighted 🎲 card.")
+        else:
+            self.picker.set_for("Click a parameter for the highlighted card.")
+
+    def _on_param_picked(self, name: str, kind: str) -> None:
+        pid = self._picking
+        if pid and pid in self.size_board.cards:
+            self.size_param_changed.emit(pid, {"param": name, "type": kind})
+            self.close_picker()              # picked: done
+        else:
+            self.size_param_added.emit("param", name, kind, -1)
+
+    def set_param_list(self, rows, note: str) -> None:
+        """The avatar's parameters ({name: (type, value)}; None keeps them)."""
+        self.picker.set_rows(rows, note)
+
+    def set_target(self, cm: float) -> None:
+        """A new target, as if typed (a random card's roll)."""
+        self.target_spin.setValue(cm)
+
     # --- transition -------------------------------------------------
 
     def transition_inputs(self) -> Tuple[float, int, str, str]:
@@ -1271,6 +1548,10 @@ class HeightShiftWindow(QMainWindow):
             self._suppress = False
 
     def set_target_limit(self, top_cm: float) -> None:
+        self._top_cm = float(top_cm)
+        for card_ in self.size_board.cards.values():
+            if isinstance(card_, RandomCard):
+                card_.set_top(top_cm)
         for spin in (self.target_spin, self.fixed_spin):
             self._suppress = True
             try:
@@ -1337,6 +1618,25 @@ class HeightShiftWindow(QMainWindow):
     def set_router(self, checked: bool) -> None:
         self._set_checked(self.router_cb, checked)
 
+    def set_vr_reset(self, on: bool, left: int, right: int, then: str, name: str) -> None:
+        self._set_checked(self.vr_reset_cb, on)
+        self.vr_reset_box.setVisible(on)
+        names = dict(GESTURES)
+        for key, code in (("left", left), ("right", right)):
+            self.vr_hand_btns[key].setText(f"{names.get(code, '?')}   ▾")
+            act = self.vr_hand_actions[key].get(code)
+            if act is not None:
+                act.setChecked(True)
+        self.vr_then_seg.set_value(then)
+        self.vr_reset_hint.setText(
+            f"In VR: {name} puts you back at the avatar's own height. Fist is grip and "
+            "trigger closed. Read from VRChat's own gesture parameters, so any controller "
+            "works and nothing is added to the avatar.")
+
+    def pick_profile(self, num: int) -> None:
+        """Saved height `num`, as a click on it (its key)."""
+        self._on_pick_profile(num)
+
     def set_hide_console(self, checked: bool, available: bool) -> None:
         self._set_checked(self.hide_console_cb, checked)
         # A setting exists only while it has something to do: an exe or
@@ -1346,7 +1646,7 @@ class HeightShiftWindow(QMainWindow):
 
     def set_hotkeys(self, *, available: bool, enabled: bool, grow: str, shrink: str,
                     speed: float, unit: str, speed_max: float, vrchat_only: bool,
-                    reset: str = "") -> None:
+                    reset: str = "", slots=()) -> None:
         # Off Windows the keys can't be read: only the speed is left (the
         # VRChat menu uses it too).
         self.hotkeys_box.setVisible(available)
@@ -1355,6 +1655,9 @@ class HeightShiftWindow(QMainWindow):
         self.grow_key_btn.set_key_text(grow)
         self.shrink_key_btn.set_key_text(shrink)
         self.reset_key_btn.set_key_text(reset)
+        for i, name in enumerate(slots, start=1):
+            if i in self.slot_key_btns:
+                self.slot_key_btns[i].set_key_text(name)
         self._suppress = True
         try:
             self.hotkey_speed_spin.setMaximum(speed_max)
@@ -1367,7 +1670,8 @@ class HeightShiftWindow(QMainWindow):
 
     def _on_capturing(self, _on: bool) -> None:
         self.capturing_key = (self.grow_key_btn.capturing or self.shrink_key_btn.capturing
-                              or self.reset_key_btn.capturing)
+                              or self.reset_key_btn.capturing
+                              or any(b.capturing for b in self.slot_key_btns.values()))
 
     def _on_hotkey_speed_input(self, *_args) -> None:
         if self._suppress:
@@ -1527,6 +1831,8 @@ class HeightShiftWindow(QMainWindow):
         self.text_smaller.setEnabled(scale > TEXT_SCALES[0] + 1e-3)
         self.text_bigger.setEnabled(scale < TEXT_SCALES[-1] - 1e-3)
         self.settings_panel.setFixedWidth(round(self.SETTINGS_WIDTH * max(1.0, scale)))
+        self.picker.setFixedWidth(round(PICKER_W * max(1.0, scale)))
+        self._size_card_widths()
         self.graph.updateGeometry()
         self.graph.setMinimumHeight(round(GRAPH_HEIGHT * scale))
         self.graph.update()

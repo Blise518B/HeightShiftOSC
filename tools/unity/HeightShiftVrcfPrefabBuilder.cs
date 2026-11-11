@@ -6,6 +6,13 @@
 // submenu to the avatar's root menu, with the icons in docs/unity/icons/
 // (drawn by tools/make_menu_icons.py).
 //
+// And the contact examples, Assets/HeightShift/Contacts/HeightShift Contact
+// Grow / Shrink / Random.prefab: a contact receiver that sets the parameter
+// the app's matching card listens to (HeightShift/Contact/<name>, Bool,
+// unsynced), a VRCFury Armature Link to the head (change it: the body part
+// to touch), a Full Controller that declares the parameter, and a VRCFury
+// Gizmo whose text in the Scene view says what to change.
+//
 // tools/build_vrcf_prefab.py copies this file, its .asmdef and
 // docs/unity/HeightShift_MenuInstaller.cs (the menu and parameter
 // definitions both share) into a throwaway Editor folder of a Unity project
@@ -25,14 +32,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using com.vrcfury.api;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using VRC.Dynamics;
 using VRC.SDK3.Avatars.Components;
+using VRC.SDK3.Dynamics.Contact.Components;
 using VRC.SDK3.Avatars.ScriptableObjects;
 using VRC.SDKBase.Editor.BuildPipeline;
 using Object = UnityEngine.Object;
@@ -53,6 +64,22 @@ namespace HeightShift.Build
         private const string ControlsPath = PartsDir + "/HeightShift_VRCF_Controls.asset";
         private const string MenuPath = PartsDir + "/HeightShift_VRCF_Menu.asset";
         private const string PrefabPath = Dir + "/HeightShift.prefab";
+        private const string ContactsDir = Dir + "/Contacts";
+        private const string ContactPartsDir = ContactsDir + "/Parts";
+
+        // The contact examples: the app's default cards listen to these
+        // (constants.py CONTACT_*). Name, parameter, tags that set it off,
+        // what it does — all on the head; the Gizmo says to change that.
+        private static readonly (string name, string param, string[] tags, string what)[]
+            Contacts =
+        {
+            ("Grow", "HeightShift/Contact/Grow", new[] { "Hand", "Finger" },
+             "grows you while someone's hand is on it (a headpat)"),
+            ("Shrink", "HeightShift/Contact/Shrink", new[] { "Foot" },
+             "shrinks you while someone's foot is on it"),
+            ("Random", "HeightShift/Contact/Random", new[] { "Finger" },
+             "rolls the app's Random card when a finger boops it"),
+        };
 
         // Everything the app listens to is under HeightShift/. VRCFury
         // renames any parameter its Full Controller doesn't list as global,
@@ -190,6 +217,108 @@ namespace HeightShift.Build
             foreach (var sub in nested.Values)
                 EditorUtility.SetDirty(sub);
             AssetDatabase.SaveAssets();
+            BuildContacts();
+        }
+
+        private static string ContactPrefabPath(string name) =>
+            ContactsDir + "/HeightShift Contact " + name + ".prefab";
+
+        private static string ContactParamsPath(string name) =>
+            ContactPartsDir + "/HeightShift_Contact_" + name + "_Parameters.asset";
+
+        private static void BuildContacts()
+        {
+            AssetDatabase.CreateFolder(Dir, "Contacts");
+            AssetDatabase.CreateFolder(ContactsDir, "Parts");
+            foreach (var (name, param, tags, what) in Contacts)
+            {
+                // the parameter, unsynced and unsaved (OSC reads it locally:
+                // no synced bits), and in FX too, for the receiver to set
+                var parameters = ScriptableObject.CreateInstance<VRCExpressionParameters>();
+                parameters.parameters = new VRCExpressionParameters.Parameter[0];
+                HeightShiftMenuInstaller.AddOrUpdateParameter(parameters, param,
+                    VRCExpressionParameters.ValueType.Bool, 0f);
+                AssetDatabase.CreateAsset(parameters, ContactParamsPath(name));
+                var fx = AnimatorController.CreateAnimatorControllerAtPath(
+                    ContactPartsDir + "/HeightShift_Contact_" + name + ".controller");
+                fx.AddParameter(param, AnimatorControllerParameterType.Bool);
+
+                var go = new GameObject("HeightShift Contact " + name);
+                var receiver = go.AddComponent<VRCContactReceiver>();
+                receiver.shapeType = ContactBase.ShapeType.Sphere;
+                receiver.radius = 0.12f;
+                receiver.position = new Vector3(0f, 0.1f, 0f);   // above the head bone
+                receiver.collisionTags = new List<string>(tags);
+                receiver.receiverType = ContactReceiver.ReceiverType.Constant;
+                receiver.parameter = param;
+                receiver.allowSelf = false;     // someone else's hand, foot, finger
+                receiver.allowOthers = true;
+                receiver.localOnly = true;      // the app reads it on your own PC
+
+                var link = FuryComponents.CreateArmatureLink(go);
+                link.LinkTo(HumanBodyBones.Head);
+                // onto the bone, upright, at world scale 1 (so the radius is
+                // in metres on any rig): the public API has no switch for these
+                var model = Field(link, "c");
+                SetField(model, "alignPosition", true);
+                SetField(model, "alignRotation", true);
+                SetField(model, "alignScale", false);
+                SetField(model, "forceOneWorldScale", true);
+
+                var controller = FuryComponents.CreateFullController(go);
+                controller.AddController(fx);
+                controller.AddParams(parameters);
+                controller.AddGlobalParam(GlobalParams);
+
+                AddGizmo(go, "HeightShift Contact " + name + ": " + what + ".\n" +
+                             "1. Armature Link (VRCFury): pick the body part.\n" +
+                             "2. Contact Receiver: pick the Collision Tags that set it off, " +
+                             "and move / size it.\n" +
+                             "Sets " + param + " — the app's card of that name acts on it.");
+                PrefabUtility.SaveAsPrefabAsset(go, ContactPrefabPath(name));
+                Object.DestroyImmediate(go);
+                Log("built " + ContactPrefabPath(name));
+            }
+            AssetDatabase.SaveAssets();
+        }
+
+        // VRCFury's text-in-the-Scene-view feature (not in its public API):
+        // a note on the prefab that goes away at upload with VRCFury itself.
+        private static void AddGizmo(GameObject go, string text)
+        {
+            var vrcfury = Type.GetType("VF.Model.VRCFury, VRCFury")
+                          ?? throw new Exception("VRCFury's component type not found");
+            var gizmoType = Type.GetType("VF.Model.Feature.Gizmo, VRCFury")
+                            ?? throw new Exception("VRCFury's Gizmo feature not found");
+            var component = go.AddComponent(vrcfury);
+            var gizmo = Activator.CreateInstance(gizmoType, true);
+            SetField(gizmo, "text", text);
+            SetField(gizmo, "rotation", Vector3.zero);
+            SetField(gizmo, "sphereRadius", 0.12f);
+            SetField(gizmo, "arrowLength", 0f);
+            SetField(component, "content", gizmo);
+        }
+
+        private static object Field(object target, string name)
+        {
+            var field = target.GetType().GetField(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new Exception(target.GetType().Name + " has no field " + name);
+            return field.GetValue(target);
+        }
+
+        private static void SetField(object target, string name, object value)
+        {
+            var field = target.GetType().GetField(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?? throw new Exception(target.GetType().Name + " has no field " + name);
+            field.SetValue(target, value);
+        }
+
+        private static string FeatureName(Component vrcfury)
+        {
+            var content = Field(vrcfury, "content");
+            return content == null ? "(none)" : content.GetType().Name;
         }
 
         private static string NestedPath(string key) =>
@@ -301,6 +430,7 @@ namespace HeightShift.Build
                                 subMenu = old,
                             });
                     }, reportOnly: true);
+                ok &= CheckContacts();
                 AssetDatabase.DeleteAsset(Dir);
                 Finish(ok, ok ? "all checks passed" : "some checks FAILED");
             }
@@ -308,6 +438,86 @@ namespace HeightShift.Build
             {
                 Finish(false, e.ToString());
             }
+        }
+
+        // Each contact example as the package brings it, and put on a test
+        // avatar: its parameter must come out unsynced, unsaved, not renamed,
+        // and its receiver must still set it. (The test avatar has no
+        // humanoid rig, so the Armature Link is taken off that copy: what it
+        // does is VRCFury's own, checked in the prefab instead.)
+        private static bool CheckContacts()
+        {
+            var ok = true;
+            var vrcfuryType = Type.GetType("VF.Model.VRCFury, VRCFury");
+            foreach (var (name, param, tags, _) in Contacts)
+            {
+                Log("");
+                Log("== contact example " + name);
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ContactPrefabPath(name));
+                if (prefab == null)
+                {
+                    ok = Fail("the package has no " + ContactPrefabPath(name));
+                    continue;
+                }
+                var receiver = prefab.GetComponent<VRCContactReceiver>();
+                if (receiver == null || receiver.parameter != param || !receiver.localOnly
+                    || receiver.receiverType != ContactReceiver.ReceiverType.Constant
+                    || !receiver.collisionTags.SequenceEqual(tags))
+                    ok = Fail(name + ": the receiver isn't " + param + ", Constant, local, " +
+                              string.Join("+", tags));
+                var features = prefab.GetComponents(vrcfuryType).Select(FeatureName).ToList();
+                Log("VRCFury: " + string.Join(", ", features));
+                foreach (var want in new[] { "ArmatureLink", "FullController", "Gizmo" })
+                    if (!features.Contains(want))
+                        ok = Fail(name + ": no VRCFury " + want);
+
+                var avatar = new GameObject("HeightShift Contact Test Avatar");
+                avatar.AddComponent<Animator>();
+                var descriptor = avatar.AddComponent<VRCAvatarDescriptor>();
+                descriptor.baseAnimationLayers = DefaultLayers(
+                    VRCAvatarDescriptor.AnimLayerType.Base,
+                    VRCAvatarDescriptor.AnimLayerType.Additive,
+                    VRCAvatarDescriptor.AnimLayerType.Gesture,
+                    VRCAvatarDescriptor.AnimLayerType.Action,
+                    VRCAvatarDescriptor.AnimLayerType.FX);
+                descriptor.specialAnimationLayers = DefaultLayers(
+                    VRCAvatarDescriptor.AnimLayerType.Sitting,
+                    VRCAvatarDescriptor.AnimLayerType.TPose,
+                    VRCAvatarDescriptor.AnimLayerType.IKPose);
+                var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, avatar.transform);
+                foreach (var c in instance.GetComponents(vrcfuryType))
+                    if (FeatureName(c) == "ArmatureLink")
+                        Object.DestroyImmediate(c);
+                var clone = Object.Instantiate(avatar);
+                try
+                {
+                    if (!VRCBuildPipelineCallbacks.OnPreprocessAvatar(clone))
+                    {
+                        ok = Fail(name + ": the upload preprocess refused it (see the Unity log)");
+                        continue;
+                    }
+                    var built = clone.GetComponent<VRCAvatarDescriptor>();
+                    var all = built.expressionParameters.parameters ??
+                              new VRCExpressionParameters.Parameter[0];
+                    var found = all.Where(p => p != null && p.name == param).ToList();
+                    if (found.Count != 1 || found[0].networkSynced || found[0].saved
+                        || found[0].valueType != VRCExpressionParameters.ValueType.Bool)
+                        ok = Fail(name + ": " + param + " found " + found.Count +
+                                  " times, or synced / saved / not a Bool");
+                    var builtReceiver = clone.GetComponentsInChildren<VRCContactReceiver>(true)
+                        .FirstOrDefault(r => r.parameter == param);
+                    if (builtReceiver == null)
+                        ok = Fail(name + ": after the build no receiver sets " + param);
+                    Log((ok ? "ok" : "FAIL") + ": " + param + " unsynced, unsaved, set by its " +
+                        "receiver (" + built.expressionParameters.CalcTotalCost() + " synced bits in all)");
+                }
+                finally
+                {
+                    Object.DestroyImmediate(clone);
+                    Object.DestroyImmediate(avatar);
+                }
+            }
+            return ok;
         }
 
         private static bool Scenario(string title, GameObject prefab,

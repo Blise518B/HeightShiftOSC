@@ -100,7 +100,7 @@ h1, h2, h3 { font-family: var(--title-font); font-weight: 400; letter-spacing: .
 .head p { color: var(--muted); margin-top: 10px; font-size: 17px; }
 
 /* what it does */
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .card { border: 1px solid var(--edge); border-radius: 12px; padding: 18px 20px; background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .card h3 { font: 600 16px "Segoe UI", system-ui, sans-serif; letter-spacing: 0; color: var(--txt); margin-bottom: 6px; }
 .card p { color: var(--muted); font-size: 14.5px; line-height: 1.55; }
@@ -110,11 +110,12 @@ h1, h2, h3 { font-family: var(--title-font); font-weight: 400; letter-spacing: .
 .card .dot.timed { background: var(--yellow); }
 .card .dot.plus { background: var(--red); }
 .card .dot.minus { background: var(--blue); }
+.card .dot.params { background: var(--cyan); }
 
 /* the VRChat menu */
-.menu { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.menu { display: grid; grid-template-columns: repeat(9, 1fr); gap: 10px; }
 .menu div { border: 1px solid var(--edge); border-radius: 12px; padding: 14px 10px 12px; text-align: center; }
-.menu img { width: 64px; height: 64px; margin: 0 auto 8px; }
+.menu img { width: 56px; height: 56px; margin: 0 auto 8px; }
 .menu b { display: block; color: var(--txt); font-weight: 600; font-size: 14.5px; }
 .menu span { color: var(--muted); font-size: 13px; line-height: 1.4; }
 .menu-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; align-items: center; }
@@ -144,7 +145,7 @@ footer { margin-top: 80px; border-top: 1px solid var(--edge); padding: 30px 0; b
 }
 @media (max-width: 600px) {
   .cards, .steps { grid-template-columns: 1fr; }
-  .menu { grid-template-columns: repeat(2, 1fr); }
+  .menu { grid-template-columns: repeat(3, 1fr); }
   .hide-sm { display: none; }
 }
 </style>
@@ -179,7 +180,7 @@ footer { margin-top: 80px; border-top: 1px solid var(--edge); padding: 30px 0; b
     <p class="dlmeta">Windows 10 / 11 &middot; one file, no install &middot; updates itself &middot; free and open source<br>
       On Linux? <a class="inl" href="https://github.com/Blise518B/HeightShiftOSC/releases/latest/download/HeightShift-Linux-x86_64.AppImage">Get the AppImage</a></p>
   </div>
-  <div class="shot"><img src="site/app.png" alt="The HeightShift window: you at 1.7 m in front of a 50 m target on a logarithmic height scale, saved heights in pink and yellow, Go instant and Go timed" width="740" height="810"></div>
+  <div class="shot"><img src="site/app.png" alt="The HeightShift window: you at 1.7 m in front of a 50 m target on a logarithmic height scale, nine saved heights in pink and yellow, Go instant and Go timed, and size parameter cards: a headpat growing you, a random height card" width="1000" height="1240"></div>
 </header>
 
 <section class="section wrap" id="does">
@@ -200,9 +201,15 @@ footer { margin-top: 80px; border-top: 1px solid var(--edge); padding: 30px 0; b
     <div class="card"><h3><span class="dot plus"></span><span class="dot minus"></span>Grow while held</h3>
       <p>Hold numpad <b>+</b> or <b>&minus;</b> in VRChat to grow or shrink smoothly, or nudge by 1, 10 or 100&nbsp;cm.
         Your keys, your speed.</p></div>
+    <div class="card"><h3><span class="dot params"></span>A headpat grows you</h3>
+      <p>Avatar parameters change your size while they're on &mdash; a contact, a toggle, a radial. One card each,
+        its own speed; pick them from your avatar's list or drag them in.</p></div>
+    <div class="card"><h3><span class="dot params"></span>Roll a random height</h3>
+      <p>A &#127922; card picks a height between two &mdash; on a click, from the VRChat menu or when a contact
+        is touched &mdash; and goes there at once or over time.</p></div>
     <div class="card"><h3>Keeps your height</h3>
-      <p>Switch avatars and it puts back the height you had. Six saved heights &mdash; make one
-        <b>go instant</b> and 1&nbsp;cm is one click away.</p></div>
+      <p>Switch avatars and it puts back the height you had. Nine saved heights on numpad 1&ndash;9 &mdash; make one
+        <b>go instant</b> and 1&nbsp;cm is one key away. Both fists and a jump in VR: back to your own height.</p></div>
     <div class="card"><h3>Reads before it writes</h3>
       <p>On start it only reads. Every height it sends is checked: up to 100&nbsp;m, or 1000&nbsp;m once you unlock it.</p></div>
   </div>
@@ -213,13 +220,17 @@ footer { margin-top: 80px; border-top: 1px solid var(--edge); padding: 30px 0; b
     <p class="kicker">In VR</p>
     <h2>A menu on your avatar</h2>
     <p>Drag one prefab onto your avatar (VRCFury) and HeightShift gets its own submenu in VRChat's Action Menu.
-      It costs no synced parameters.</p>
+      It costs no synced parameters. The package also has contact examples: drag one on, pick the body part,
+      and a touch there grows or shrinks you.</p>
   </div>
   <div class="menu">
     <div><img src="unity/icons/grow.png" alt=""><b>Grow</b><span>hold to grow</span></div>
     <div><img src="unity/icons/shrink.png" alt=""><b>Shrink</b><span>hold to shrink</span></div>
     <div><img src="unity/icons/play_pause.png" alt=""><b>Play / Pause</b><span>go timed</span></div>
     <div><img src="unity/icons/stop.png" alt=""><b>Stop</b><span>stay where you are</span></div>
+    <div><img src="unity/icons/own_height.png" alt=""><b>Own height</b><span>back to your size</span></div>
+    <div><img src="unity/icons/roll.png" alt=""><b>Random height</b><span>roll the &#127922; card</span></div>
+    <div><img src="unity/icons/pause_cards.png" alt=""><b>Pause cards</b><span>touches change nothing</span></div>
     <div><img src="unity/icons/load1.png" alt=""><b>Load 1&ndash;4</b><span>a saved height</span></div>
     <div><img src="unity/icons/save1.png" alt=""><b>Save 1&ndash;4</b><span>your height now</span></div>
   </div>

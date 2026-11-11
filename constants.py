@@ -102,7 +102,7 @@ DEFAULT_TRANSITION_UNIT = "s"      # "s" | "min" | "h"
 # A first start comes with one saved height, so Load as target and the
 # scale's numbered mark show what they do; the other three slots are empty.
 DEFAULT_PROFILES = {"profile1": 140.0}
-SAVED_SLOTS = 6                    # saved heights in the window (the VRChat menu has 1-4)
+SAVED_SLOTS = 9                    # saved heights in the window, numpad 1-9 (the VRChat menu has 1-4)
 # What a click does — on a saved height (each its own), and on the height
 # scale (one for all). Blise, 2026-11-11: "change the slots from the default
 # select to the pink instant or the yellow timed", "above the height limit …
@@ -129,6 +129,55 @@ HOTKEY_SPEED_MIN = 0.1
 HOTKEY_SPEED_MAX_PCT = 100.0       # doubling every second
 HOTKEY_SPEED_MAX_CM = 1000.0       # 10 m every second
 
+# --- Size parameters (a friend's ask, 2026-11-11) ---
+# Avatar parameters that grow or shrink you while they're on: a Bool at its
+# card's full speed, a Float at its share (0..1) of it, an Int while it isn't
+# 0. Each card has its own direction, speed and unit (the hotkeys' units and
+# limits); a hotkey or menu button held goes first. They send at the send rate.
+SIZE_PARAMS_MAX = 24
+DEFAULT_SIZE_PARAM_SPEED = 5.0     # with the unit below: as the hotkeys
+DEFAULT_SIZE_PARAM_UNIT = "cm"
+# A random card (the size community's gambling worlds): a height between
+# these two, even on the height scale; then select it / go instant / go timed.
+DEFAULT_RANDOM_MIN_CM = 50.0
+DEFAULT_RANDOM_MAX_CM = 500.0
+DEFAULT_RANDOM_GO = "instant"
+# The contact examples in the VRCFury package (docs/unity/: HeightShift
+# Contact Grow / Shrink / Random.prefab) set these. A first start comes with
+# a Grow and a Shrink card for them, and a new 🎲 card listens to Random —
+# drag a prefab onto the avatar and they work.
+CONTACT_GROW = "HeightShift/Contact/Grow"
+CONTACT_SHRINK = "HeightShift/Contact/Shrink"
+CONTACT_RANDOM = "HeightShift/Contact/Random"
+DEFAULT_SIZE_PARAMS = (
+    {"kind": "param", "param": CONTACT_GROW, "type": "Bool", "dir": "grow",
+     "speed": 5.0, "unit": "cm", "on": True},
+    {"kind": "param", "param": CONTACT_SHRINK, "type": "Bool", "dir": "shrink",
+     "speed": 5.0, "unit": "cm", "on": True},
+)
+# MENU_PAUSE (above) pauses every size parameter card while it is on: the
+# menu's toggle, or a prefab's own contact driving the same parameter.
+
+# --- Back to your own height in VR (a friend's ask, 2026-11-11) ---
+# A gesture on each hand (both fists — grip + trigger — by default), then a
+# jump, or held for a moment. Read from VRChat's own avatar parameters, which
+# every avatar has, so it works with any controller VRChat knows and needs
+# nothing on the avatar. Blise: "make the vr gesture configurable".
+GESTURE_LEFT, GESTURE_RIGHT, GROUNDED = "GestureLeft", "GestureRight", "Grounded"
+# VRChat's hand gestures (the GestureLeft / GestureRight values)
+GESTURES = ((0, "Neutral"), (1, "Fist"), (2, "Open hand"), (3, "Point"), (4, "Victory"),
+            (5, "Rock'n'roll"), (6, "Hand gun"), (7, "Thumbs up"))
+GESTURE_FIST = 1
+VR_THEN_JUMP, VR_THEN_HOLD = "jump", "hold"
+VR_RESET_HOLD_S = 1.5              # "hold": the two gestures this long
+VR_RESET_COOLDOWN_S = 2.0
+DEFAULT_VR_RESET = True
+SIZE_PARAM_MAX_STEP_S = 0.25       # a late tick never jumps further than this
+# The picker (the avatar's parameters, beside the window) reads them from
+# VRChat's OSCQuery tree this often while it is open — not decoding all ~2,900
+# packets a second VRChat streams (see osc/manager.py _WantedOnly).
+PICKER_REFRESH_MS = 1000
+
 # --- In-VRChat menu (the VRCFury prefab, docs/unity/) ---
 # Avatar parameters the HeightShift menu sets. VRChat streams every avatar
 # parameter to this app already (it lists /avatar in OSCQuery). All of them
@@ -142,8 +191,12 @@ MENU_PLAY = "HeightShift/Play"        # Bool, a Button: play / pause / resume th
 MENU_STOP = "HeightShift/Stop"        # Bool, a Button: stop the transition
 MENU_LOAD = "HeightShift/Load"        # Int, Buttons 1-4: set saved height N
 MENU_SAVE = "HeightShift/Save"        # Int, Buttons 1-4: save the current height as N
+MENU_RESET = "HeightShift/Reset"      # Bool, a Button: back to the avatar's own height
+MENU_ROLL = "HeightShift/Roll"        # Bool, a Button: the first 🎲 card rolls
+MENU_PAUSE = "HeightShift/Pause"      # Bool, a Toggle: every size parameter card waits
 MENU_PARAMS = {MENU_GROW: "bool", MENU_SHRINK: "bool", MENU_PLAY: "bool", MENU_STOP: "bool",
-               MENU_LOAD: "int", MENU_SAVE: "int"}
+               MENU_LOAD: "int", MENU_SAVE: "int", MENU_RESET: "bool", MENU_ROLL: "bool",
+               MENU_PAUSE: "bool"}
 # A press this soon after an avatar change is the new avatar's load, not a
 # press; a press this soon after the same button's release is the 518
 # router's second copy of a packet, not a second press.

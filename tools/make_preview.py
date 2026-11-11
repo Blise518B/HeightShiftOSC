@@ -37,17 +37,20 @@ from tests.test_controller import FakeConsole, FakeKeys, FakeOSC, FakeRouter, Cl
 import controller  # noqa: E402
 import whats_new  # noqa: E402
 from config_manager import ConfigManager  # noqa: E402
-from constants import DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH  # noqa: E402
 from ui import theme  # noqa: E402
 from ui import theme_tokens as T  # noqa: E402
 from ui.window import HeightShiftWindow  # noqa: E402
 
 W, H = 2400, 1260          # the README picture; og.png is it at half size
+# The window, tall enough for the Size parameters card under the timed
+# transition, wide enough for three of its cards in a row.
+WIN_W, WIN_H = 1000, 1240
 
 
 def render_window():
     """The window as it is used: you at 1.7 m, a 50 m target, saved heights
-    in all three colours, the scale on Go instant, the mouse over 12 m."""
+    in all three colours, the scale on Go instant, the mouse over 12 m, and
+    size parameter cards — a headpat growing you, a 🎲 card."""
     theme.register_fonts()
     controller.VRChatOSCManager = FakeOSC
     controller.Router518KeepAlive = FakeRouter
@@ -62,15 +65,29 @@ def render_window():
         "profiles": {"profile1": 140.0, "profile2": 1.0, "profile3": 5000.0,
                      "profile4": 3.0, "profile5": 300.0},
         "profile_actions": {"profile2": "instant", "profile3": "timed",
-                            "profile4": "instant", "profile5": "timed"}})
+                            "profile4": "instant", "profile5": "timed"},
+        "size_params": [
+            {"kind": "param", "param": "HeightShift/Contact/Grow", "type": "Bool",
+             "dir": "grow", "speed": 5.0, "unit": "cm"},
+            {"kind": "param", "param": "Contacts/FootOnHead", "type": "Float",
+             "dir": "shrink", "speed": 2.5, "unit": "pct"},
+            {"kind": "random", "param": "HeightShift/Contact/Random", "type": "Bool",
+             "min": 30.0, "max": 1000.0, "go": "timed"}]})
     win = HeightShiftWindow("v2.0", "2.0")
     ctl = controller.HeightShiftController(win, cfg, FakeConsole())
-    win.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+    win.resize(WIN_W, WIN_H)
     win.setAttribute(Qt.WA_DontShowOnScreen, True)
     win.show()
     ctl.osc.is_connected = True
     ctl._on_connected()
     ctl._on_reported(1.70, clock.t)
+    ctl._on_params_read(ctl._params_round, {
+        "HeightShift/Contact/Grow": ("Bool", False), "Contacts/FootOnHead": ("Float", 0.0),
+        "HeightShift/Contact/Random": ("Bool", False)})
+    ctl._on_param("HeightShift/Contact/Grow", True, clock.t)     # a headpat, right now
+    ctl._last_roll[ctl.size_params[2]["id"]] = 312.0
+    ctl._show_param_live()
+    ctl._param_timer.stop()
     for _ in range(6):
         _app.processEvents()
     fig = win.figure
@@ -139,15 +156,16 @@ def compose(window_img: QImage, news_img: QImage) -> QImage:
     p.setPen(QColor(c["txt"]))
     p.drawText(QRectF(x, y, 700, 130), Qt.AlignLeft | Qt.TextWordWrap,
                "Change your height in VRChat, smoothly.")
-    y += 172
+    y += 150
     features = (
         (pal["green"][0], "Your height and the target on one picture"),
         (pal["pink"][0], "Go instant — there at once"),
         (pal["yellow"][0], "Go timed — over seconds, minutes or hours"),
-        (pal["green"][0], "Six saved heights, one click each"),
+        (pal["cyan"][0], "A headpat grows you: avatar parameters"),
+        (pal["cyan"][0], "🎲 Random heights, a roll away"),
+        (pal["green"][0], "Nine saved heights on numpad 1–9"),
         (pal["red"][0], "Nudge ±1 / 10 / 100 cm, or hold a key"),
         (pal["amber"][0], "A menu in VRChat (VRCFury prefab)"),
-        (pal["orange"][0], "Updates itself · What's new"),
     )
     p.setFont(font("Segoe UI", 31))
     for colour, text in features:
@@ -156,7 +174,7 @@ def compose(window_img: QImage, news_img: QImage) -> QImage:
         p.drawEllipse(QPointF(x + 11, y + 26), 10, 10)
         p.setPen(QColor(c["txt"]))
         p.drawText(QRectF(x + 40, y, 690, 52), Qt.AlignVCenter | Qt.AlignLeft, text)
-        y += 74
+        y += 68
     p.setFont(font("Segoe UI", 27))
     p.setPen(QColor(c["muted"]))
     p.drawText(QRectF(x, H - 150, 720, 80), Qt.AlignLeft | Qt.TextWordWrap,
@@ -168,27 +186,22 @@ def compose(window_img: QImage, news_img: QImage) -> QImage:
     wx = 820
     rounded(p, window_img, QRectF(wx, 70, win_w, win_h), 18, c["line"])
 
-    # --- right: What's new and the VRChat menu -----------------------------
+    # --- right: the VRChat menu, then What's new -----------------------------
     rx = wx + win_w + 50
     rw = W - rx - 70
     p.setFont(font("Segoe UI", 28, bold=True))
     p.setPen(QColor(c["muted"]))
-    p.drawText(QRectF(rx, 70, rw, 44), Qt.AlignLeft | Qt.AlignVCenter, "After each update")
-    news_h = round(rw * news_img.height() / news_img.width())
-    rounded(p, news_img, QRectF(rx, 124, rw, news_h), 14, pal["orange"][1])
-
-    my = 124 + news_h + 52
-    p.setPen(QColor(c["muted"]))
-    p.drawText(QRectF(rx, my, rw, 44), Qt.AlignLeft | Qt.AlignVCenter, "In your Action Menu")
-    my += 60
+    p.drawText(QRectF(rx, 70, rw, 44), Qt.AlignLeft | Qt.AlignVCenter, "In your Action Menu")
+    my = 130
     menu = (("grow", "Grow"), ("shrink", "Shrink"), ("play_pause", "Play"),
-            ("stop", "Stop"), ("load1", "Load"), ("save1", "Save"))
+            ("stop", "Stop"), ("own_height", "Own height"), ("roll", "Random"),
+            ("pause_cards", "Pause cards"), ("load1", "Load"), ("save1", "Save"))
     cols, gap = 3, 18
     cell = (rw - (cols - 1) * gap) / cols
-    p.setFont(font("Segoe UI", 24, bold=True))
+    p.setFont(font("Segoe UI", 22, bold=True))
     for i, (name, text) in enumerate(menu):
         cx = rx + (i % cols) * (cell + gap)
-        cy = my + (i // cols) * (cell + 50)
+        cy = my + (i // cols) * (cell + 46)
         box = QRectF(cx, cy, cell, cell)
         p.setPen(QPen(QColor(pal["amber"][1]), 3))
         p.setBrush(QColor(c["card"]))
@@ -196,7 +209,17 @@ def compose(window_img: QImage, news_img: QImage) -> QImage:
         pic = QImage(str(ROOT / "docs" / "unity" / "icons" / f"{name}.png"))
         p.drawImage(box.adjusted(cell * 0.16, cell * 0.16, -cell * 0.16, -cell * 0.16), pic)
         p.setPen(QColor(c["txt"]))
-        p.drawText(QRectF(cx, cy + cell + 4, cell, 40), Qt.AlignCenter, text)
+        p.drawText(QRectF(cx - gap / 2, cy + cell + 2, cell + gap, 38), Qt.AlignCenter, text)
+
+    ny = my + 3 * (cell + 46) + 30
+    p.setFont(font("Segoe UI", 28, bold=True))
+    p.setPen(QColor(c["muted"]))
+    p.drawText(QRectF(rx, ny, rw, 44), Qt.AlignLeft | Qt.AlignVCenter, "After each update")
+    ny += 56
+    room = H - 70 - ny
+    nw = min(rw, room * news_img.width() / news_img.height())
+    nh = nw * news_img.height() / news_img.width()
+    rounded(p, news_img, QRectF(rx, ny, nw, nh), 14, pal["orange"][1])
     p.end()
     return img
 

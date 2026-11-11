@@ -44,8 +44,29 @@ class Release(NamedTuple):
 
 RELEASES: Tuple[Release, ...] = (
     Release("2.0.29", (
+        Item("Size parameters",
+             "Let your avatar change your size: a contact, a toggle or a radial grows or "
+             "shrinks you while it's on, each card at its own speed. + Parameter opens the "
+             "avatar's list beside the window — click one, or drag it onto a card.",
+             "size_params", icon="grow"),
+        Item("🎲 Random height",
+             "A card that picks a height between two — on its 🎲, the VRChat menu's Random "
+             "height, or when a parameter turns on.",
+             "size_params", icon="roll"),
+        Item("Nine saved heights, on the numpad",
+             "Numpad 1–9 do what a click on saved height 1–9 does. Change the keys in "
+             "Settings → Grow & shrink while held.",
+             "slots", icon="saved"),
+        Item("Back to your height in VR",
+             "Both fists and a jump puts you back at the avatar's own height — or the "
+             "gesture you set in Settings.",
+             "vr_gesture", icon="own_height"),
+        Item("More in the VRChat menu",
+             "Own height, Random height and Pause cards; and contact examples in the "
+             "VRCFury package that drive the Grow and Shrink cards.",
+             "menu_guide", icon="pause_cards"),
         Item("Back to your own height",
-             "The ↺ Own height button beside NOW — or numpad * (your own key in Settings "
+             "The ↺ Own height button top right of NOW — or numpad * (your own key in Settings "
              "→ Grow & shrink while held) — puts you back at the avatar's own height, the "
              "one it has before any scaling.",
              "own_height", icon="load1"),

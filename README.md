@@ -32,8 +32,8 @@ steps, hold a key, or use its own menu in VRChat.
   under it.
 - **Pick the target, then go.** Pick it on the scale — click or drag anywhere along it, drag the pointer,
   or pull either head up or down (a dashed line with the height follows the mouse first) — by typing it
-  (`170`, `1.7 m`, `1,7 m`, `50 m`, `1.2 km`), or by loading one of six saved heights as the target
-  (click it in the panel or its numbered mark on the scale). Picking sends nothing by itself: **Go
+  (`170`, `1.7 m`, `1,7 m`, `50 m`, `1.2 km`), or by loading one of nine saved heights as the target
+  (click it in the panel, its numbered mark on the scale, or press numpad 1–9). Picking sends nothing by itself: **Go
   instant** sets the target at once; **Go timed** glides there over the time set below. The ring on the
   scale only shows where you are.
 - **Or go with one click.** The button on top of the picture says what a click on the scale does:
@@ -45,9 +45,21 @@ steps, hold a key, or use its own menu in VRChat.
   second) or *Even growth* (same percentage every second, so 1 m → 50 m doesn't rush at the start). A
   graph shows the curve with a playhead; Pause / Resume / Stop. Sends 30 updates a second by default
   (10 / 30 / 60 in Settings → Height; VRChat sets no limit).
+- **Size parameters** — a card below the timed transition where avatar parameters grow or shrink you
+  while they're on: a contact (a headpat, a foot on your head), a toggle, a radial. One card each, with
+  its own direction, speed (cm/s or %/s) and ‖ / ▶, and one switch for all. A Bool works at the card's
+  full speed, a Float (0–1) at that share of it, an Int while it isn't 0; several at once add up. A
+  held key or menu button goes first; a running transition stops when a card starts. *+ Parameter*
+  (or a card's name) opens the avatar's parameter list on the right of the window — filter, click one,
+  or drag it onto a card; drag a card by its ⠿ to sort them. Only the parameters on cards are decoded.
+- **🎲 Random height** — a card that picks a height between two (even on the height scale), on its 🎲,
+  the VRChat menu's *Random height*, or when its parameter turns on; then selects it, goes there at
+  once or starts the timed transition — as set on the card.
 - **VRChat menu** — a VRCFury prefab adds a HeightShift submenu to your avatar's Action Menu: Grow and
-  Shrink while held, Play / Pause and Stop for the timed transition, and the four saved heights (set or
-  save). It talks only to this app and costs the avatar no synced parameter memory. See
+  Shrink while held, Play / Pause and Stop for the timed transition, Own height, Random height, a
+  Pause cards toggle, and saved heights 1–4 (set or save). The package also has contact examples
+  (`HeightShift Contact Grow / Shrink / Random`) that drive the matching cards — drag one on, pick the
+  body part. It talks only to this app and costs the avatar no synced parameter memory. See
   [`docs/VRCHAT_MENU.md`](docs/VRCHAT_MENU.md). The bottom of Settings is a mini guide to it: what each
   of its icons does, with links to the prefab (the newest release's) and the setup guide.
 - **Hold-to-grow hotkeys** (on from the first start; switch them off in Settings) — hold a key to grow or
@@ -56,9 +68,13 @@ steps, hold a key, or use its own menu in VRChat.
   your own keys (numpad + / − by default, with Ctrl / Shift / Alt if you like). By default they only work
   while VRChat is the window in front, so typing the key in Discord changes nothing. The keys are read,
   never intercepted: every other program still gets them. Windows only.
-- **Back to the avatar's own height** — the "↺ Own height · 1.43 m" button beside NOW, or the reset key
-  (numpad `*` by default, your own in Settings): one press puts you back at the height the avatar has
-  before any scaling. VRChat reports it indirectly: its
+- **Saved-height keys** — numpad 1–9 do what a click on saved height 1–9 does (select, go instant or
+  go timed); each key can be changed in Settings. A tap between two polls of the keyboard still counts.
+- **Back to the avatar's own height** — the "↺ Own height · 1.43 m" button top right of NOW, the reset
+  key (numpad `*` by default, your own in Settings), the VRChat menu's *Own height*, or in VR a gesture:
+  both fists (grip + trigger) and a jump by default — the gesture on each hand, and *jump* or *hold
+  1.5 s*, are set in Settings (read from VRChat's own gesture parameters: any controller, nothing on
+  the avatar). One press puts you back at the height the avatar has before any scaling. VRChat reports it indirectly: its
   `ScaleFactor` parameter is the current eye height over the avatar's own, so own = current ÷
   ScaleFactor (read from VRChat when it hasn't been sent yet).
 - **Unlock upper limit** — off: nothing above 100 m is ever sent. On: up to 1000 m, and the height
@@ -126,7 +142,7 @@ Stored as JSON, written atomically. A file that can't be read is kept next to it
 
 The folder was called `HeightShiftOSC` before; an old folder is adopted automatically.
 
-Keys: `profiles` (`profile1`–`profile4`, cm) · `startup_mode` (`query` = read my height, `fixed_height`
+Keys: `profiles` (`profile1`–`profile9`, cm) · `startup_mode` (`query` = read my height, `fixed_height`
 = send `startup_height` once, the first time VRChat connects) · `startup_height` ·
 `slider_min_value` / `slider_max_value` (the height scale's ends) · `preserve_height_on_avatar_switch` · `unlock_upper_limit` ·
 `transition_target_cm` / `transition_duration` / `transition_unit` / `transition_curve` ·
@@ -135,7 +151,11 @@ Keys: `profiles` (`profile1`–`profile4`, cm) · `startup_mode` (`query` = read
 `osc_router_518` · `hide_console` · `ui_mode` (`neon` / `midnight`) · `text_scale` · `settings_open` ·
 `window_geometry_qt` · `skip_update_version` (the release tag set to "don't remind me") ·
 `profile_actions` (`{"profile1": "select" | "instant" | "timed"}`) · `scale_mode` (the same three) ·
-`whats_new_seen_version` (the newest notes shown).
+`whats_new_seen_version` (the newest notes shown) · `hotkey_slots` (nine keys, saved heights 1–9) ·
+`size_params` (the cards, in order: `{"kind": "param", "param", "type", "dir": "grow" | "shrink",
+"speed", "unit", "on"}` or `{"kind": "random", "param", "min", "max", "go", "on"}`) · `size_params_on` ·
+`vr_reset_gesture` · `vr_reset_left` / `vr_reset_right` (VRChat's gesture numbers, 1 = fist) ·
+`vr_reset_then` (`jump` / `hold`).
 
 ## OSC
 
@@ -143,7 +163,8 @@ Keys: `profiles` (`profile1`–`profile4`, cm) · `startup_mode` (`query` = read
 |---------|-----------|-------|
 | `/avatar/eyeheight` | send + receive | eye height in metres (cm ÷ 100) |
 | `/avatar/change` | receive | avatar id — triggers "keep my height" |
-| `/avatar/parameters/HeightShift/*` | receive | the VRChat menu: `Grow`, `Shrink`, `Play`, `Stop` (Bool, held while pressed), `Load`, `Save` (Int 1–4) — see [`docs/VRCHAT_MENU.md`](docs/VRCHAT_MENU.md) |
+| `/avatar/parameters/HeightShift/*` | receive | the VRChat menu: `Grow`, `Shrink`, `Play`, `Stop`, `Reset`, `Roll` (Bool, held while pressed), `Pause` (Bool toggle), `Load`, `Save` (Int 1–4); the contact examples' `Contact/Grow`, `Contact/Shrink`, `Contact/Random` — see [`docs/VRCHAT_MENU.md`](docs/VRCHAT_MENU.md) |
+| `/avatar/parameters/<a card's parameter>` | receive | size parameter and 🎲 cards; `GestureLeft`, `GestureRight`, `Grounded` for the VR gesture. Only these are decoded; the picker reads the list from VRChat's OSCQuery tree (`/avatar/parameters`) once a second while it is open |
 
 Whether the avatar has the menu is read from VRChat's OSCQuery tree (`/avatar/parameters/HeightShift`)
 when VRChat connects and after every avatar change. A menu press that arrives within a second of an

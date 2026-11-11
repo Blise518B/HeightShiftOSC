@@ -56,6 +56,8 @@ class Hotkey:
 DEFAULT_GROW = Hotkey(VK_ADD)
 DEFAULT_SHRINK = Hotkey(VK_SUBTRACT)
 DEFAULT_RESET = Hotkey(0x6A)       # numpad *: back to the avatar's own height
+# numpad 1-9: saved heights 1-9 (as a click on them: their own action)
+DEFAULT_SLOT_KEYS = tuple(Hotkey(0x61 + i) for i in range(9))
 
 _NAMES = {
     VK_ADD: "Num +", VK_SUBTRACT: "Num −", 0x6A: "Num *", 0x6F: "Num /", 0x6E: "Num ,",
@@ -126,6 +128,14 @@ class KeyReader:
             return False
         return all(bool(hotkey.mods & flag) == self._down(vk) for flag, vk in _MOD_KEYS)
 
+    def pressed(self, hotkey: Hotkey) -> bool:
+        """Down now — or pressed and already let go since this key was last
+        asked: a quick tap between two polls (the poll runs at 10 Hz while
+        nothing is held) still counts. For keys that act once per press."""
+        if not self.available or not self._tapped(hotkey.vk):
+            return False
+        return all(bool(hotkey.mods & flag) == self._down(vk) for flag, vk in _MOD_KEYS)
+
     def vrchat_in_front(self) -> bool:
         return self.foreground_exe().lower() == VRCHAT_EXE
 
@@ -147,6 +157,16 @@ class KeyReader:
             return bool(self._key_down(vk))
         try:
             return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
+        except Exception:
+            return False
+
+    def _tapped(self, vk: int) -> bool:
+        if self._key_down is not None:
+            return bool(self._key_down(vk))
+        try:
+            # 0x8000: down now; 0x0001: pressed since the last call (best
+            # effort — Windows shares it, so it can only add a press)
+            return bool(self._user32.GetAsyncKeyState(vk) & 0x8001)
         except Exception:
             return False
 

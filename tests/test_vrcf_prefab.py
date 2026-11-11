@@ -34,14 +34,21 @@ PREFAB = f"{ROOT}/HeightShift.prefab"
 PARAMETERS = f"{DIR}/HeightShift_VRCF_Parameters.asset"
 WRAPPER = f"{DIR}/HeightShift_VRCF_Menu.asset"   # the one-control menu VRCFury merges
 MENUS = ("Controls", "SavedHeights", "SaveCurrent")
+CONTACTS = f"{ROOT}/Contacts"   # the contact examples
+CONTACT_NAMES = {"Grow": constants.CONTACT_GROW, "Shrink": constants.CONTACT_SHRINK,
+                 "Random": constants.CONTACT_RANDOM}
 
 # VRCExpressionParameters.ValueType and VRCExpressionsMenu.Control.ControlType.
 VALUE_TYPES = {"int": 0, "float": 1, "bool": 2}
-BUTTON, SUBMENU = 101, 103
+BUTTON, TOGGLE, SUBMENU = 101, 102, 103
 
 
 def button(name, param, value, icon):
     return (name, BUTTON, param, value, icon, None)
+
+
+def toggle(name, param, value, icon):
+    return (name, TOGGLE, param, value, icon, None)
 
 
 def folder(name, icon, controls):
@@ -56,6 +63,9 @@ EXPECTED_MENU = [
         button("Shrink", constants.MENU_SHRINK, 1, "shrink"),
         button("Play / Pause", constants.MENU_PLAY, 1, "play_pause"),
         button("Stop", constants.MENU_STOP, 1, "stop"),
+        button("Own height", constants.MENU_RESET, 1, "own_height"),
+        button("Random height", constants.MENU_ROLL, 1, "roll"),
+        toggle("Pause cards", constants.MENU_PAUSE, 1, "pause_cards"),
         folder("Saved heights", "saved", [
             *(button(f"Load {n}", constants.MENU_LOAD, n, f"load{n}") for n in range(1, 5)),
             folder("Save current", "save", [
@@ -127,7 +137,30 @@ class TestVrcfPrefab(unittest.TestCase):
             PARAMETERS,
             WRAPPER,
             *(f"{DIR}/HeightShift_VRCF_{key}.asset" for key in MENUS),
+            CONTACTS,
+            f"{CONTACTS}/Parts",
+            *(f"{CONTACTS}/HeightShift Contact {name}.prefab" for name in CONTACT_NAMES),
+            *(f"{CONTACTS}/Parts/HeightShift_Contact_{name}_Parameters.asset"
+              for name in CONTACT_NAMES),
+            *(f"{CONTACTS}/Parts/HeightShift_Contact_{name}.controller"
+              for name in CONTACT_NAMES),
         })
+
+    def test_contact_examples_set_the_cards_parameters(self):
+        # each sets the parameter the app's default card (or a new 🎲 card)
+        # listens to, unsynced and unsaved, and keeps its name (global)
+        for name, param in CONTACT_NAMES.items():
+            with self.subTest(name):
+                prefab = self.text(f"{CONTACTS}/HeightShift Contact {name}.prefab")
+                self.assertIn(f"parameter: {param}", prefab)
+                self.assertIn("localOnly: 1", prefab)
+                self.assertIn(f"- {constants.MENU_PREFIX}*", prefab)        # global
+                for feature in ("ArmatureLink", "FullController", "Gizmo"):
+                    self.assertIn(f"type: {{class: {feature}, ns: VF.Model.Feature", prefab)
+                params = self.text(f"{CONTACTS}/Parts/HeightShift_Contact_{name}_Parameters.asset")
+                self.assertRegex(params, rf"- name: {re.escape(param)}\n\s+valueType: 2\n"
+                                         rf"\s+saved: 0\n\s+defaultValue: 0\n"
+                                         rf"\s+networkSynced: 0")
 
     def test_the_icons_are_the_drawn_ones(self):
         for f in ICONS.glob("*.png"):

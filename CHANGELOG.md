@@ -8,10 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.29] - 2026-11-11
 
 ### Added
+- Size parameters: a card below Timed transition where avatar parameters grow or shrink you while
+  they're on — a contact, a toggle, a radial. Each is a card of its own: Grow / Shrink, a speed in
+  cm/s or %/s, its own ‖ / ▶; one switch pauses them all. A Bool works at the card's full speed, a
+  Float (0–1) at that share of it, an Int while it isn't 0. Several at once add up. A held hotkey or
+  menu button goes first; a running timed transition stops when a card starts. Only the parameters
+  on cards are decoded (it stays light in the background).
+- The avatar's parameters beside the window (OscGoesPurrr's Avatar Remote list): + Parameter, or a
+  card's name, opens it on the right and widens the window; filter, click one to use it, or drag it
+  onto a card (or onto free room for a new card). Cards are sorted by dragging their ⠿.
+- 🎲 Random height cards: a height between two (even on the height scale), on 🎲 or when a parameter
+  turns on; then select it, go instant or go timed.
+- Nine saved heights (were six), on numpad 1–9 — a press does what a click on it does. Each key can
+  be changed in Settings → Grow & shrink while held. Quick taps between two polls count too.
+- VR: a gesture puts you back at the avatar's own height — both fists (grip + trigger) and a jump by
+  default; the gesture on each hand and "jump" or "hold 1.5 s" are set in Settings. Read from
+  VRChat's own gesture parameters, so any controller works and nothing is added to the avatar.
+- The VRChat menu (VRCFury prefab and one-click installer): Own height and Random height buttons, and
+  a Pause cards toggle (`HeightShift/Pause`: the size parameter cards wait while it is on). Still
+  zero synced bits.
+- Contact examples in the VRCFury package: `HeightShift Contact Grow / Shrink / Random.prefab` — a
+  contact receiver (local only, others' Hand / Finger / Foot) linked to the head with an Armature Link,
+  its parameter declared unsynced, and a VRCFury Gizmo saying what to change. A first start comes with
+  the Grow and Shrink cards for them, and a new 🎲 card listens to the Random one.
 - Linux: `HeightShift-Linux-x86_64.AppImage` with every release. It updates itself like the Windows exe
   (the new AppImage replaces the old one and starts once the old one has closed). The hold-to-grow
   hotkeys are Windows-only; the VRChat menu's Grow / Shrink work everywhere.
-- Back to the avatar's own height: an "↺ Own height · 1.43 m" button beside NOW, and a reset key (numpad
+- Back to the avatar's own height: an "↺ Own height · 1.43 m" button top right of NOW, and a reset key (numpad
   `*` by default, your own in Settings → Grow & shrink while held). The own height is current ÷ VRChat's
   `ScaleFactor`, which VRChat sends for every avatar (and is asked for after connecting and after an
   avatar switch, so the button shows it before it is pressed).
