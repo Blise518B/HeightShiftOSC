@@ -75,11 +75,11 @@ run.bat
 (PySide6, python-osc, zeroconf, requests) and starts `main.py`. Python 3.10+.
 
 Build a standalone exe with `build.bat` (PyInstaller, one file, windowed). It also writes
-`dist\HeightShift-Windows.exe`, the release asset's fixed name.
+`dist\HeightShift.exe`, the release asset's fixed name.
 
 **A release** is a GitHub release on `Blise518B/HeightShiftOSC` tagged `v<version>` — the version the
 build printed (`version.py`: `2.0.<commits on main>`, so build it on `main`) — carrying
-`dist\HeightShift-Windows.exe` and `docs\unity\HeightShift-VRCFury.unitypackage`. The updater looks for
+`dist\HeightShift.exe` and `docs\unity\HeightShift-VRCFury.unitypackage`. The updater looks for
 an `.exe` with "heightshift" in its name on the newest release; the Settings guide's "Get the VRCFury
 prefab" link is `releases/latest/download/HeightShift-VRCFury.unitypackage`. Both need the repository
 to be public.

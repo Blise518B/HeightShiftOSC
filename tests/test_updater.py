@@ -56,7 +56,7 @@ def serving(responses):
 
 EXE = b"MZ" + b"\x00" * 5000
 EXE_SHA = hashlib.sha256(EXE).hexdigest()
-EXE_URL = "https://github.com/Blise518B/HeightShiftOSC/releases/download/v2.0.30/HeightShift-Windows.exe"
+EXE_URL = "https://github.com/Blise518B/HeightShiftOSC/releases/download/v2.0.30/HeightShift.exe"
 
 
 def release(tag="v2.0.30", assets=None):
@@ -64,12 +64,12 @@ def release(tag="v2.0.30", assets=None):
             + tag, "assets": assets if assets is not None else [
                 {"name": "HeightShift-VRCFury.unitypackage", "size": 10,
                  "browser_download_url": "https://example.invalid/pkg"},
-                {"name": "HeightShift-Windows.exe", "size": len(EXE), "digest": f"sha256:{EXE_SHA}",
+                {"name": "HeightShift.exe", "size": len(EXE), "digest": f"sha256:{EXE_SHA}",
                  "browser_download_url": EXE_URL}]}
 
 
 def asset(**over):
-    a = {"name": "HeightShift-Windows.exe", "url": EXE_URL, "size": len(EXE), "sha256": EXE_SHA}
+    a = {"name": "HeightShift.exe", "url": EXE_URL, "size": len(EXE), "sha256": EXE_SHA}
     a.update(over)
     return a
 
@@ -86,7 +86,7 @@ class VersionTest(unittest.TestCase):
 
     def test_only_our_https_exe_is_the_asset(self):
         picked = updater.pick_exe_asset(release()["assets"])
-        self.assertEqual(picked["name"], "HeightShift-Windows.exe")
+        self.assertEqual(picked["name"], "HeightShift.exe")
         self.assertEqual(picked["sha256"], EXE_SHA)
         self.assertIsNone(updater.pick_exe_asset([{"name": "Other.exe", "browser_download_url":
                                                    "https://x/Other.exe"}]))

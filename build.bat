@@ -164,9 +164,9 @@ if exist "dist\!EXE_NAME!.exe" (
     echo [SUCCESS] !EXE_NAME!.exe created successfully!
     REM The release asset keeps one name, so the updater (updater.py) and the
     REM links in the README always find it. A release = tag v!BUILD_VERSION!
-    REM with dist\HeightShift-Windows.exe and docs\unity\HeightShift-VRCFury.unitypackage.
-    copy /y "dist\!EXE_NAME!.exe" "dist\HeightShift-Windows.exe" >nul
-    echo Release copy: dist\HeightShift-Windows.exe
+    REM with dist\HeightShift.exe and docs\unity\HeightShift-VRCFury.unitypackage.
+    copy /y "dist\!EXE_NAME!.exe" "dist\HeightShift.exe" >nul
+    echo Release copy: dist\HeightShift.exe
 ) else (
     echo [WARNING] Executable not found in dist folder.
 )

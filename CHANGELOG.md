@@ -37,7 +37,7 @@ A reworked window around one idea: pick a target, then go there instantly or ove
   a newer one lights an orange chip in the header and opens a window — Install now downloads it,
   checks its size and SHA-256, swaps the exe and restarts. Later is the default (Enter never installs),
   "Don't remind me" quiets that version, Settings → Updates checks by hand. Run from source, it offers
-  the release page. Releases carry `HeightShift-Windows.exe` (build.bat writes it) and the menu package.
+  the release page. Releases carry `HeightShift.exe` (build.bat writes it) and the menu package.
 - Settings end with a mini guide to the VRChat menu: each of its icons and what it does, in the menu's
   order, with links to the VRCFury prefab (the newest release's) and the setup guide.
 - The status bar's names are links: HeightShift to its GitHub page, Blise518B to his GitHub profile.

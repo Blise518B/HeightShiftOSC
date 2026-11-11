@@ -24,7 +24,7 @@ source checkout (run.bat) gets is_self_updatable() == False and the window
 offers the release page instead.
 
 A release must carry the exe as an asset whose name holds "heightshift" and
-ends in .exe (build.bat writes HeightShift-Windows.exe into dist/ for it), and its
+ends in .exe (build.bat writes HeightShift.exe into dist/ for it), and its
 tag must be v<__version__> of that build (version.py), e.g. v2.0.25.
 """
 from __future__ import annotations
