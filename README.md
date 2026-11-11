@@ -49,9 +49,10 @@ steps, hold a key, or use its own menu in VRChat.
   while they're on: a contact (a headpat, a foot on your head), a toggle, a radial. One card each, with
   its own direction, speed (cm/s or %/s) and ‖ / ▶, and one switch for all. A Bool works at the card's
   full speed, a Float (0–1) at that share of it, an Int while it isn't 0; several at once add up. A
-  held key or menu button goes first; a running transition stops when a card starts. *+ Parameter*
-  (or a card's name) opens the avatar's parameter list on the right of the window — filter, click one,
-  or drag it onto a card; drag a card by its ⠿ to sort them. Only the parameters on cards are decoded.
+  held key or menu button goes first; a running transition stops when a card starts. Each card is one
+  line: type its parameter's name, or *Pick…* it from the avatar's parameter list, which opens on the
+  right of the window (and shows while Settings are open) — filter, click one, or drag it onto a card;
+  drag a card by its ⠿ to sort them. Only the parameters on cards are decoded.
 - **🎲 Random height** — a card that picks a height between two (even on the height scale), on its 🎲,
   the VRChat menu's *Random height*, or when its parameter turns on; then selects it, goes there at
   once or starts the timed transition — as set on the card.

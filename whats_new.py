@@ -43,11 +43,11 @@ class Release(NamedTuple):
 
 
 RELEASES: Tuple[Release, ...] = (
-    Release("2.0.29", (
+    Release("2.0.33", (
         Item("Size parameters",
              "Let your avatar change your size: a contact, a toggle or a radial grows or "
-             "shrinks you while it's on, each card at its own speed. + Parameter opens the "
-             "avatar's list beside the window — click one, or drag it onto a card.",
+             "shrinks you while it's on, each card at its own speed. Type a parameter's "
+             "name on a card, or Pick… it from the avatar's list beside the window.",
              "size_params", icon="grow"),
         Item("🎲 Random height",
              "A card that picks a height between two — on its 🎲, the VRChat menu's Random "

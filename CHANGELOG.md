@@ -5,7 +5,7 @@ All notable changes to HeightShift (formerly HeightShiftOSC) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.29] - 2026-11-11
+## [2.0.33] - 2026-11-11
 
 ### Added
 - Size parameters: a card below Timed transition where avatar parameters grow or shrink you while
@@ -14,9 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Float (0–1) at that share of it, an Int while it isn't 0. Several at once add up. A held hotkey or
   menu button goes first; a running timed transition stops when a card starts. Only the parameters
   on cards are decoded (it stays light in the background).
-- The avatar's parameters beside the window (OscGoesPurrr's Avatar Remote list): + Parameter, or a
-  card's name, opens it on the right and widens the window; filter, click one to use it, or drag it
-  onto a card (or onto free room for a new card). Cards are sorted by dragging their ⠿.
+- Each card is one line: its parameter's name is typed (click in and change it), or picked from the
+  avatar's parameters beside the window (OscGoesPurrr's Avatar Remote list) — Pick… on a card opens
+  it on the right and widens the window, and it shows while Settings are open (never otherwise; Close
+  puts it away). Filter it (the filter is kept while the app runs), click one to use it, or drag it
+  onto a card or between them for a new card. Cards are sorted by dragging their ⠿.
 - 🎲 Random height cards: a height between two (even on the height scale), on 🎲 or when a parameter
   turns on; then select it, go instant or go timed.
 - Nine saved heights (were six), on numpad 1–9 — a press does what a click on it does. Each key can
